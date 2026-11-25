@@ -28,26 +28,26 @@ export const OC_URL_LABEL = "OC_URL";
 /** Default presentation colour of the `OC_URL` label. */
 export const OC_URL_LABEL_COLOR = "#2563EB";
 
-/** Stacking order of the per-page overlay layers. */
-export const Z_INDEX = {
-  /** PDF page SelectionLayer: full-page overlay capturing the mouse for
-   *  drag-to-select. Sits above the rendered canvas. */
-  PDF_SELECTION_LAYER: 1,
-  /** PDF page NativeLinkLayer: anchors over pdf.js external-link
-   *  annotations. Must sit above `PDF_SELECTION_LAYER` so its
-   *  `pointer-events: auto` anchors receive clicks first. */
-  PDF_NATIVE_LINK_LAYER: 2,
-} as const;
+// Reference-mention label codes the enrichment pipeline emits.
+export const OC_REF_LAW_LABEL = "OC_REF_LAW";
+export const OC_REF_DOC_LABEL = "OC_REF_DOC";
+export const OC_REF_SECTION_LABEL = "OC_REF_SECTION";
+export const OC_REF_TERM_LABEL = "OC_REF_TERM";
 
-// Annotation visual styling
-/** RGB tuple for the rejected (maroon) state. */
-export const REJECTED_RGB = { r: 128, g: 0, b: 0 } as const;
-/** RGB tuple for the approved (green) state. */
-export const APPROVED_RGB = { r: 46, g: 204, b: 113 } as const;
-/** Border-radius for annotation bounding boxes and label pills. */
-export const ANNOTATION_BOUNDARY_RADIUS = "6px";
-/** Border-radius for individual annotation tokens. */
-export const ANNOTATION_TOKEN_RADIUS = "4px";
+/**
+ * Human-facing chip labels for reference mentions: the chip names the kind
+ * of reference in plain language rather than the internal label code.
+ */
+export const REFERENCE_MENTION_DISPLAY_NAMES: Readonly<Record<string, string>> =
+  Object.freeze({
+    [OC_REF_LAW_LABEL]: "Law",
+    [OC_REF_DOC_LABEL]: "Exhibit",
+    [OC_REF_SECTION_LABEL]: "Section",
+    [OC_REF_TERM_LABEL]: "Defined term",
+  });
+
+/** Colour of a label without one (`Selection.tsx`: "grey as the default"). */
+export const DEFAULT_LABEL_COLOR = "#616a6b";
 
 // Annotation boundary box-shadow layers (selected state)
 export const BOUNDARY_SHADOW_SELECTED = {
@@ -74,21 +74,6 @@ export const BOUNDARY_SHADOW_UNSELECTED = {
   insetSpread: 1,
   insetOpacity: 0.04,
 } as const;
-
-// Annotation boundary background opacity
-export const BOUNDARY_OPACITY_SELECTED = 0.18;
-export const BOUNDARY_OPACITY_UNSELECTED = 0.06;
-
-// Token highlight opacity
-export const TOKEN_OPACITY_HIGH = 0.38;
-export const TOKEN_OPACITY_LOW = 0.22;
-
-// Token shadow
-export const TOKEN_SHADOW_BLUR = 4;
-export const TOKEN_SHADOW_SPREAD = 1;
-
-/** Pixels added around each token to close inter-token gaps. */
-export const TOKEN_EXPANSION_PX = 1;
 
 /** Half a PDF point: tolerance when comparing PAWLs and pdf.js page sizes. */
 export const PAWLS_COORDINATE_EPSILON = 0.5;
@@ -164,5 +149,5 @@ export const THEME_DEFAULTS = {
    * `--rca-structural-color`: OpenContracts has no colour of its own for
    * structural annotations; this is its default label grey.
    */
-  structuralColor: "#616a6b",
+  structuralColor: DEFAULT_LABEL_COLOR,
 } as const;

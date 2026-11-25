@@ -1,18 +1,35 @@
 /**
- * One mounted PDF page: its canvas and render lifecycle. Ported from
- * OpenContracts' `PDFPage` (`renderers/pdf/PDFPage.tsx`, 98286cabf) without
- * its layers (selection, links, annotations, search / chat / text-block
- * results) and without the initial fit-to-width zoom, which the format's
- * driver resolves for the shell (`resolveFitWidth`).
+ * One mounted PDF page: its canvas and render lifecycle, the native link
+ * layer and the annotation boxes. Ported from OpenContracts' `PDFPage`
+ * (`renderers/pdf/PDFPage.tsx`, 98286cabf) without its selection layer and
+ * its search / chat / text-block results, and without the initial
+ * fit-to-width zoom, which the format's driver resolves for the shell
+ * (`resolveFitWidth`).
  *
  * The first render happens on mount; later zoom changes re-render the page
  * at once and again through the viewport's shared, debounced render queue
  * (`onZoomRenderRequest`), as in OpenContracts.
+ *
+ * The page draws every visible token annotation that has bounds on it, once
+ * its canvas has rendered. It also carries out the last step of a scroll
+ * request for an annotation whose first page it is: once the box is under
+ * the instance root, it centres it in the root and completes the request
+ * (the viewport has already brought the page into view).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 
-import { useSetDocumentStatus, useZoom } from "../core/index";
+import {
+  annotationPages,
+  useRootElement,
+  useScrollRequest,
+  useSetDocumentStatus,
+  useVisibleAnnotations,
+  useZoom,
+} from "../core/index";
+import type { TokenAnnotation } from "../core/index";
+import { AnnotationBox } from "./AnnotationBox";
+import { NativeLinkLayer } from "./NativeLinkLayer";
 import { isRenderingCancelled, PdfPageRenderer } from "./PdfPageRenderer";
 import type { PDFPageInfo } from "./PDFPageInfo";
 
@@ -59,13 +76,101 @@ const PageCanvas = styled.canvas`
 export interface PdfPageProps {
   pageInfo: PDFPageInfo;
   onZoomRenderRequest?: RequestPageRender;
+  /** Draw the PDF's own links as clickable anchors. Default true. */
+  enableNativeLinks?: boolean;
 }
 
 function toError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason));
 }
 
-export function PdfPage({ pageInfo, onZoomRenderRequest }: PdfPageProps) {
+/** The box annotation `id` draws on page `pageIndex`, under the root. */
+function findBox(
+  root: HTMLElement,
+  id: string,
+  pageIndex: number
+): HTMLElement | null {
+  const parts = root.querySelectorAll<HTMLElement>(
+    `[data-rca-page-part="${pageIndex}"]`
+  );
+  for (const part of Array.from(parts)) {
+    if (part.getAttribute("data-rca-annotation") === id) return part;
+  }
+  return null;
+}
+
+/**
+ * Sets the root's `scrollTop` / `scrollLeft`, computed from the offset
+ * between the two, so the centre of `box` is at the centre of the root's
+ * view. When the root does not scroll (the page does: the viewport's window
+ * fallback), the box is scrolled into view instead. Either way the box is in
+ * view when this returns.
+ */
+function centreInRoot(root: HTMLElement, box: HTMLElement): void {
+  if (root.scrollHeight <= root.clientHeight) {
+    box.scrollIntoView({ block: "center", inline: "center" });
+    return;
+  }
+  const view = root.getBoundingClientRect();
+  const target = box.getBoundingClientRect();
+  const top =
+    root.scrollTop +
+    (target.top + target.height / 2) -
+    (view.top + root.clientTop + root.clientHeight / 2);
+  const left =
+    root.scrollLeft +
+    (target.left + target.width / 2) -
+    (view.left + root.clientLeft + root.clientWidth / 2);
+  root.scrollTop = Math.max(0, top);
+  root.scrollLeft = Math.max(0, left);
+}
+
+/**
+ * The page's part of a scroll request for an annotation: when the target's
+ * first page is this one and the page draws it, centre its box as soon as it
+ * is under the root (retrying on animation frames while the request is
+ * current), then complete the request.
+ */
+function useCentreScrollTarget(
+  pageIndex: number,
+  drawn: readonly TokenAnnotation[],
+  rendered: boolean
+): void {
+  const root = useRootElement();
+  const { request, complete } = useScrollRequest();
+  const target = request?.target;
+  const targetId =
+    target?.kind === "annotation" &&
+    drawn.some(
+      (a) => a.id === target.id && annotationPages(a)[0] === pageIndex
+    )
+      ? target.id
+      : null;
+
+  useEffect(() => {
+    if (!request || targetId === null || !rendered || !root) return;
+    const { seq } = request;
+    let frame = 0;
+    const attempt = () => {
+      const box = findBox(root, targetId, pageIndex);
+      if (!box) {
+        frame = requestAnimationFrame(attempt);
+        return;
+      }
+      centreInRoot(root, box);
+      complete(seq, true);
+    };
+    attempt();
+    // A newer request, or this page leaving the window, stops the retries.
+    return () => cancelAnimationFrame(frame);
+  }, [request, targetId, rendered, root, pageIndex, complete]);
+}
+
+export function PdfPage({
+  pageInfo,
+  onZoomRenderRequest,
+  enableNativeLinks = true,
+}: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<PdfPageRenderer | null>(null);
   const pageContainerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +178,25 @@ export function PdfPage({ pageInfo, onZoomRenderRequest }: PdfPageProps) {
   const setStatus = useSetDocumentStatus();
   const [hasPdfPageRendered, setPdfPageRendered] = useState(false);
   const pageNumber = pageInfo.page.pageNumber;
+  const pageIndex = pageNumber - 1;
+
+  /* the page's tokens at the current zoom, for the boxes */
+  const scaledPageInfo = useMemo(
+    () => pageInfo.withScale(zoomLevel),
+    [pageInfo, zoomLevel]
+  );
+
+  /* the visible token annotations with a box on this page */
+  const visibleAnnotations = useVisibleAnnotations();
+  const drawn = useMemo(
+    () =>
+      visibleAnnotations.filter(
+        (annot): annot is TokenAnnotation =>
+          annot.kind === "token" && Boolean(annot.json[pageIndex]?.bounds)
+      ),
+    [visibleAnnotations, pageIndex]
+  );
+  useCentreScrollTarget(pageIndex, drawn, hasPdfPageRendered);
 
   const lastRenderedZoom = useRef<number | null>(null);
 
@@ -208,12 +332,20 @@ export function PdfPage({ pageInfo, onZoomRenderRequest }: PdfPageProps) {
   }, [zoomLevel, hasPdfPageRendered, pageInfo.page, pageNumber]);
 
   return (
-    <PageAnnotationsContainer
-      ref={pageContainerRef}
-      data-rca-page={pageNumber - 1}
-    >
+    <PageAnnotationsContainer ref={pageContainerRef} data-rca-page={pageIndex}>
       <CanvasWrapper>
         <PageCanvas ref={canvasRef} />
+        {hasPdfPageRendered && enableNativeLinks && (
+          <NativeLinkLayer page={pageInfo.page} scale={zoomLevel} />
+        )}
+        {hasPdfPageRendered &&
+          drawn.map((annotation) => (
+            <AnnotationBox
+              key={annotation.id}
+              annotation={annotation}
+              pageInfo={scaledPageInfo}
+            />
+          ))}
       </CanvasWrapper>
     </PageAnnotationsContainer>
   );

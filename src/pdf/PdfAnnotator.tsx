@@ -10,13 +10,17 @@ import type { ForwardedRef, ReactElement, RefAttributes } from "react";
 
 import {
   AnnotatorShell,
+  annotationPages,
   computeFitToWidthZoom,
+  useAllAnnotations,
+  useNotifyDrawabilityChanged,
   useNotifyFitWidthChanged,
   useRegisterFormatDriver,
   useRootElement,
 } from "../core/index";
 import type {
   AnnotatorHandle,
+  InternalAnnotation,
   PawlsInput,
   PdfAnnotatorProps,
   ScrollTarget,
@@ -31,12 +35,13 @@ function PdfAnnotatorWithRef<M>(
   props: PdfAnnotatorProps<M>,
   ref: ForwardedRef<AnnotatorHandle>
 ) {
-  const { source, pawls, ...common } = props;
+  const { source, pawls, enableNativeLinks, ...common } = props;
   return (
     <AnnotatorShell common={common} handleRef={ref}>
       <PdfFormat
         source={source}
         pawls={pawls}
+        enableNativeLinks={enableNativeLinks}
         onVisiblePagesChange={common.onVisiblePagesChange}
       />
     </AnnotatorShell>
@@ -52,12 +57,22 @@ export const PdfAnnotator = forwardRef(PdfAnnotatorWithRef) as <M = unknown>(
 ) => ReactElement | null;
 
 /**
- * Whether this format can draw `target` now. It is asked before a scroll to
- * an annotation or highlight; nothing is drawable while the format renders
- * neither annotations nor highlights.
+ * Whether this format can draw `target` now: an annotation is drawable once
+ * it is a token annotation whose first page is one of the document's pages.
+ * The display filters are not consulted, so `scrollToAnnotation(id,
+ * { select: true })` can reveal a hidden annotation. Highlights are not
+ * drawn yet.
  */
-function canDraw(_target: ScrollTarget): boolean {
-  return false;
+function canDraw(
+  target: ScrollTarget,
+  annotations: readonly InternalAnnotation[],
+  pageCount: number
+): boolean {
+  if (target.kind !== "annotation") return false;
+  const annotation = annotations.find((a) => a.id === target.id);
+  if (annotation?.kind !== "token") return false;
+  const firstPage = annotationPages(annotation)[0];
+  return firstPage !== undefined && firstPage < pageCount;
 }
 
 /** The zoom at which page 1 fills the root's width; null until measurable. */
@@ -86,19 +101,28 @@ function documentText(pages: readonly PDFPageInfo[]): string {
 interface PdfFormatProps {
   source: PdfSource;
   pawls: PawlsInput | null | undefined;
+  enableNativeLinks: boolean | undefined;
   onVisiblePagesChange?: (range: [number, number]) => void;
 }
 
-function PdfFormat({ source, pawls, onVisiblePagesChange }: PdfFormatProps) {
+function PdfFormat({
+  source,
+  pawls,
+  enableNativeLinks,
+  onVisiblePagesChange,
+}: PdfFormatProps) {
   const pages = usePdfDocument(source, pawls);
+  const annotations = useAllAnnotations();
   const root = useRootElement();
   const viewport = useRef<PdfViewportControls | null>(null);
 
-  // The driver reads the pages at call time, through a ref updated before
-  // any effect of the shell can call it.
+  // The driver reads the pages and annotations at call time, through refs
+  // updated before any effect of the shell can call it.
   const pagesRef = useRef(pages);
+  const annotationsRef = useRef(annotations);
   useLayoutEffect(() => {
     pagesRef.current = pages;
+    annotationsRef.current = annotations;
   });
   const currentPages = () => pagesRef.current;
   useRegisterFormatDriver({
@@ -110,8 +134,17 @@ function PdfFormat({ source, pawls, onVisiblePagesChange }: PdfFormatProps) {
     scrollToPage: (pageIndex, behavior) =>
       viewport.current?.scrollToPage(pageIndex, behavior) ?? false,
     resolveFitWidth: () => fitWidthZoom(currentPages(), root),
-    canDraw,
+    canDraw: (target) =>
+      canDraw(target, annotationsRef.current, currentPages().length),
   });
+
+  // What is drawable depends on the pages: tell the shell when they change
+  // (loaded, rebuilt with new PAWLs, or gone), after the ref above has them.
+  // A change of the annotations the shell notices itself.
+  const notifyDrawabilityChanged = useNotifyDrawabilityChanged();
+  useLayoutEffect(() => {
+    notifyDrawabilityChanged();
+  }, [pages, notifyDrawabilityChanged]);
 
   // The fit-to-width zoom becomes measurable once the pages are in and the
   // root has a width. Tell the shell when the pages arrive, and, while the
@@ -140,6 +173,7 @@ function PdfFormat({ source, pawls, onVisiblePagesChange }: PdfFormatProps) {
       <PdfViewport
         controlsRef={viewport}
         onVisiblePagesChange={onVisiblePagesChange}
+        enableNativeLinks={enableNativeLinks !== false}
       />
     </PdfPagesContext.Provider>
   );

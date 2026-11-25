@@ -5,21 +5,33 @@
  */
 import { useAtomValue } from "jotai";
 import { useCallback } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 
+import { eventCallbacks } from "./callbacks";
 import { DOCUMENT_ERROR_MESSAGE } from "./constants";
+import type { InternalAnnotation } from "./normalize";
 import { useAnnotatorStore } from "./state/AnnotatorProvider";
 import {
   activeHighlightIdAtom,
+  annotationActionsSlotAtom,
+  annotationsAtom,
   displaySettingsAtom,
   documentStatusAtom,
   editingAtom,
   highlightsAtom,
   rootElementAtom,
   selectedAnnotationIdsAtom,
+  selectedRelationsAtom,
   zoomAtom,
 } from "./state/atoms";
 import type { DisplaySettings, DocumentStatus } from "./state/atoms";
-import type { AnnotationLabel, Highlight } from "./types";
+import type {
+  Annotation,
+  AnnotationLabel,
+  AnnotatorCommonProps,
+  Highlight,
+  Relation,
+} from "./types";
 
 /** What a format reports with `useSetDocumentStatus`. */
 export type DocumentStatusUpdate = {
@@ -105,4 +117,56 @@ export function useHighlights(): Highlight[] {
 export function useActiveHighlightId(): string | null {
   const store = useAnnotatorStore("useActiveHighlightId");
   return useAtomValue(activeHighlightIdAtom, { store });
+}
+
+/**
+ * Every annotation of the document, normalised, whatever the display filters
+ * say; `useVisibleAnnotations` is what to draw.
+ */
+export function useAllAnnotations(): InternalAnnotation[] {
+  const store = useAnnotatorStore("useAllAnnotations");
+  return useAtomValue(annotationsAtom, { store });
+}
+
+/** The relations named by `selectedRelationIds` that exist, in that order. */
+export function useSelectedRelations(): Relation[] {
+  const store = useAnnotatorStore("useSelectedRelations");
+  return useAtomValue(selectedRelationsAtom, { store });
+}
+
+/** The host's `renderAnnotationActions` slot; undefined when not supplied. */
+export function useRenderAnnotationActions(): AnnotatorCommonProps["renderAnnotationActions"] {
+  const store = useAnnotatorStore("useRenderAnnotationActions");
+  return useAtomValue(annotationActionsSlotAtom, { store }).render;
+}
+
+/**
+ * A stable function a format calls for every click on an annotation that was
+ * not a drag, with the host's own annotation object (`source`). Forwards to
+ * `onAnnotationClick`, read when it is called.
+ */
+export function useOnAnnotationClick(): (
+  annotation: Annotation,
+  event: ReactMouseEvent
+) => void {
+  const store = useAnnotatorStore("useOnAnnotationClick");
+  return useCallback(
+    (annotation: Annotation, event: ReactMouseEvent) =>
+      eventCallbacks(store).onAnnotationClick?.(annotation, event),
+    [store]
+  );
+}
+
+/**
+ * A stable function a format calls when the pointer enters an annotation
+ * (with the host's own object) or leaves it (`null`). Forwards to
+ * `onAnnotationHover`, read when it is called.
+ */
+export function useOnAnnotationHover(): (annotation: Annotation | null) => void {
+  const store = useAnnotatorStore("useOnAnnotationHover");
+  return useCallback(
+    (annotation: Annotation | null) =>
+      eventCallbacks(store).onAnnotationHover?.(annotation),
+    [store]
+  );
 }

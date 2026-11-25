@@ -16,17 +16,26 @@ export type { FormatDriver } from "./format";
 
 export {
   useActiveHighlightId,
+  useAllAnnotations,
   useDisplaySettings,
   useDocumentStatus,
   useEditing,
   useHighlights,
+  useOnAnnotationClick,
+  useOnAnnotationHover,
+  useRenderAnnotationActions,
   useRootElement,
   useSelectedAnnotationIds,
+  useSelectedRelations,
   useSetDocumentStatus,
   useZoom,
 } from "./formatHooks";
 export type { DocumentStatusUpdate } from "./formatHooks";
 export type { DisplaySettings, DocumentStatus } from "./state/atoms";
+
+export { isUrlAnnotation, useOpenLink } from "./links";
+export { LabelChip, labelColor } from "./LabelChip";
+export type { LabelChipProps } from "./LabelChip";
 
 export {
   useCompleteSelection,
@@ -54,11 +63,13 @@ export { highlightPages } from "./highlights";
 
 export {
   doOverlap,
+  hexToRgb,
   normalizeBounds,
   resolvePageTokens,
   scaled,
   spanningBound,
 } from "./geometry/transform";
+export { computeAnnotationBoxShadow } from "./geometry/colorUtils";
 export { computeFitToWidthZoom } from "./geometry/pdfZoom";
 export { expandAnnotationJson } from "./geometry/compactAnnotationJson";
 export { expandPawlsPages } from "./geometry/compactPawls";

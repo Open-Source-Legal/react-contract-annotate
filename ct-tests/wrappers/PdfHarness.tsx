@@ -10,16 +10,22 @@
  *   applies a change callback itself: a test changes them with
  *   `component.update(...)`.
  * - `annotationIds` picks fixture annotations by id (default: all of them).
+ * - `linkUrls` replaces the `linkUrl` of the fixture annotations it names.
  * - `withPawls: false` leaves out the fixture's PAWLs (usc has none).
  * - `props` are passed through last; callbacks in it are called after the
  *   harness has logged the call.
+ * - `omitCallbacks` names callback props the harness does not pass at all
+ *   (neither logged nor from `props`), for tests of the behaviour without
+ *   them.
+ *
+ * The fixture's relations are always passed.
  *
  * When `fixture` or `withPawls` changes, the annotator stays mounted and
  * keeps the previous fixture until the new one's data has been fetched; then
- * its PDF, PAWLs and annotations are passed together, so a PDF is never
- * paired with another fixture's data.
+ * its PDF, PAWLs, annotations and relations are passed together, so a PDF is
+ * never paired with another fixture's data.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type {
@@ -27,6 +33,7 @@ import type {
   AnnotatorHandle,
   PawlsInput,
   PdfAnnotatorProps,
+  Relation,
 } from "../../src/core/index";
 import { PdfAnnotator } from "../../src/pdf/index";
 import type { HarnessEvent } from "../helpers/harness";
@@ -34,9 +41,11 @@ import type { HarnessEvent } from "../helpers/harness";
 export interface PdfHarnessProps {
   mode?: "uncontrolled" | "controlled";
   annotationIds?: string[];
+  linkUrls?: Record<string, string>;
   withPawls?: boolean;
   fixture?: "eton" | "usc";
   props?: Partial<PdfAnnotatorProps>;
+  omitCallbacks?: CallbackName[];
   /** Addresses the harness from the test; default `"default"`. */
   name?: string;
 }
@@ -51,11 +60,13 @@ const FIXTURES = {
     pdf: "/fixtures/eton/eton-agreement.pdf",
     pawls: "/fixtures/eton/pawls.json",
     annotations: "/fixtures/eton/annotations.json",
+    relations: "/fixtures/eton/relations.json",
   },
   usc: {
     pdf: "/fixtures/usc/usc-title-1.pdf",
     pawls: null,
     annotations: null,
+    relations: null,
   },
 } as const;
 
@@ -64,6 +75,7 @@ type FixtureData = {
   pdf: string;
   pawls: PawlsInput | null;
   annotations: Annotation[];
+  relations: Relation[];
 };
 
 async function fetchJson<T>(url: string | null, fallback: T): Promise<T> {
@@ -88,7 +100,7 @@ const CALLBACKS = [
   "onVisiblePagesChange",
 ] as const satisfies readonly (keyof PdfAnnotatorProps)[];
 
-type CallbackName = (typeof CALLBACKS)[number];
+export type CallbackName = (typeof CALLBACKS)[number];
 
 /** The log of the harness `name`, created on first use. */
 function eventLog(name: string): HarnessEvent[] {
@@ -100,10 +112,15 @@ function eventLog(name: string): HarnessEvent[] {
 
 function loggedCallbacks(
   log: HarnessEvent[],
-  props: Partial<PdfAnnotatorProps>
+  props: Partial<PdfAnnotatorProps>,
+  omit: readonly CallbackName[]
 ): Pick<PdfAnnotatorProps, CallbackName> {
   const callbacks: Partial<Record<CallbackName, unknown>> = {};
   for (const callback of CALLBACKS) {
+    if (omit.includes(callback)) {
+      callbacks[callback] = undefined;
+      continue;
+    }
     const own = props[callback] as
       | ((...args: unknown[]) => unknown)
       | undefined;
@@ -115,12 +132,27 @@ function loggedCallbacks(
   return callbacks as Pick<PdfAnnotatorProps, CallbackName>;
 }
 
+/** The fixture annotations picked by `ids`, with `linkUrls` applied. */
+function pickAnnotations(
+  all: Annotation[],
+  ids: string[] | undefined,
+  linkUrls: Record<string, string> | undefined
+): Annotation[] {
+  const picked = ids ? all.filter((a) => ids.includes(a.id)) : all;
+  if (!linkUrls) return picked;
+  return picked.map((a) =>
+    Object.hasOwn(linkUrls, a.id) ? { ...a, linkUrl: linkUrls[a.id] } : a
+  );
+}
+
 export function PdfHarness({
   mode = "uncontrolled",
   annotationIds,
+  linkUrls,
   withPawls = true,
   fixture = "eton",
   props = {},
+  omitCallbacks = [],
   name = DEFAULT_NAME,
 }: PdfHarnessProps) {
   const files = FIXTURES[fixture];
@@ -134,8 +166,9 @@ export function PdfHarness({
     void Promise.all([
       fetchJson<PawlsInput | null>(withPawls ? files.pawls : null, null),
       fetchJson<Annotation[]>(files.annotations, []),
-    ]).then(([pawls, annotations]) => {
-      if (live) setData({ pdf: files.pdf, pawls, annotations });
+      fetchJson<Relation[]>(files.relations, []),
+    ]).then(([pawls, annotations, relations]) => {
+      if (live) setData({ pdf: files.pdf, pawls, annotations, relations });
     });
     return () => {
       live = false;
@@ -150,11 +183,15 @@ export function PdfHarness({
     [name]
   );
 
+  // Memoised: annotations with `linkUrls` applied are new objects, and a new
+  // annotation object on every render would be renormalised every render.
+  const annotations = useMemo(
+    () => pickAnnotations(data?.annotations ?? [], annotationIds, linkUrls),
+    [data, annotationIds, linkUrls]
+  );
+
   if (!data) return <div data-harness={name} style={SIZE} />;
 
-  const annotations = annotationIds
-    ? data.annotations.filter((a) => annotationIds.includes(a.id))
-    : data.annotations;
   const controlled =
     mode === "controlled"
       ? {
@@ -171,9 +208,10 @@ export function PdfHarness({
         source={{ url: data.pdf }}
         pawls={data.pawls}
         annotations={annotations}
+        relations={data.relations}
         {...props}
         {...controlled}
-        {...loggedCallbacks(log, props)}
+        {...loggedCallbacks(log, props, omitCallbacks)}
       />
     </div>
   );

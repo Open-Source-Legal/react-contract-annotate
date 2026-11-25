@@ -21,6 +21,7 @@ import {
 } from "react";
 import type { CSSProperties, MutableRefObject, ReactNode, Ref } from "react";
 
+import { useSyncEventCallbacks } from "./callbacks";
 import {
   DEFAULT_SCROLL_BEHAVIOR,
   THEME_DEFAULTS,
@@ -36,11 +37,7 @@ import {
   formatDriverAtom,
 } from "./format";
 import { normalizeAnnotations } from "./normalize";
-import {
-  pendingHandleMethods,
-  useClearPendingOnEscape,
-  useSyncSelectionCallbacks,
-} from "./pending";
+import { pendingHandleMethods, useClearPendingOnEscape } from "./pending";
 import { cancelScrollRequest, useRequestScroll } from "./scroll";
 import type { ScrollTarget } from "./scroll";
 import { SelectionMenuHost } from "./slots/SelectionMenuHost";
@@ -51,6 +48,7 @@ import {
 import type { AnnotatorStore } from "./state/AnnotatorProvider";
 import {
   activeHighlightIdAtom,
+  annotationActionsSlotAtom,
   annotationsAtom,
   DEFAULT_DISPLAY_SETTINGS,
   displaySettingsAtom,
@@ -173,7 +171,7 @@ function ShellBody<M>({ common, handleRef, children }: AnnotatorShellProps<M>) {
   useSelectionScroll(store, tick, scrollOnSelect, selectionSlot);
   useHighlightScroll(store, tick, highlightSlot);
   useDocumentLifecycle(store, common);
-  useSyncSelectionCallbacks(common);
+  useSyncEventCallbacks(common);
   useClearPendingOnEscape();
 
   const handle = useHandle(store, applyZoom, quiet);
@@ -275,9 +273,9 @@ function sameDisplaySettings(a: DisplaySettings, b: DisplaySettings): boolean {
 }
 
 /**
- * Data, display settings and editing state. Every write is skipped when the
- * store already holds an equal value, so a host that passes new arrays or
- * objects on every render wakes no subscriber.
+ * Data, display settings, editing state and the annotation-actions slot.
+ * Every write is skipped when the store already holds an equal value, so a
+ * host that passes new arrays or objects on every render wakes no subscriber.
  */
 function usePropSync<M>(
   store: AnnotatorStore,
@@ -297,6 +295,7 @@ function usePropSync<M>(
     visibleLabelIds = DEFAULT_DISPLAY_SETTINGS.visibleLabelIds,
     readOnly = false,
     activeLabel = null,
+    renderAnnotationActions,
   } = common;
 
   useLayoutEffect(() => {
@@ -347,6 +346,16 @@ function usePropSync<M>(
         : { readOnly, activeLabel }
     );
   }, [store, readOnly, activeLabel]);
+
+  // A render slot is state, not an event-time callback: a new one must
+  // re-render the chips that call it.
+  useLayoutEffect(() => {
+    store.set(annotationActionsSlotAtom, (prev) =>
+      prev.render === renderAnnotationActions
+        ? prev
+        : { render: renderAnnotationActions }
+    );
+  }, [store, renderAnnotationActions]);
 }
 
 // ---------------------------------------------------------------------------

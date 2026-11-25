@@ -12,6 +12,10 @@
  * active highlight, of the pending scroll request's target and of the
  * pending selection; and the three effects that scrolled on selection,
  * search and chat changes are gone (scrolling is driven by scroll requests).
+ *
+ * A scroll request for an annotation starts here: the viewport jumps to the
+ * target's first page at once (a layout effect, so it lands before the
+ * page's own effect centres the box), then the page completes the request.
  */
 import {
   useCallback,
@@ -28,6 +32,7 @@ import {
   draftPages,
   highlightPages,
   useActiveHighlightId,
+  useAllAnnotations,
   useHighlights,
   usePendingSelection,
   useRootElement,
@@ -59,6 +64,8 @@ export interface PdfViewportProps {
   /** Filled with the viewport's controls while it is mounted. */
   controlsRef: MutableRefObject<PdfViewportControls | null>;
   onVisiblePagesChange?: (range: [number, number]) => void;
+  /** Passed to every page. Default true. */
+  enableNativeLinks?: boolean;
 }
 
 // Shared render coordination state
@@ -168,11 +175,14 @@ function useKeepMountedPages(): number[] {
 export function PdfViewport({
   controlsRef,
   onVisiblePagesChange,
+  enableNativeLinks = true,
 }: PdfViewportProps) {
   const pageInfos = usePdfPages();
   const zoomLevel = useZoom();
   const root = useRootElement();
   const keepMounted = useKeepMountedPages();
+  const allAnnotations = useAllAnnotations();
+  const { request } = useScrollRequest();
 
   // Shared debounce state for coordinated rendering
   const renderQueueRef = useRef<Map<number, PageRenderRequest>>(new Map());
@@ -283,20 +293,35 @@ export function PdfViewport({
     onVisiblePagesChangeRef.current?.([visible[0], visible[1]]);
   }, [visible]);
 
+  /** Scrolls the page to the top of the view; false for an unknown page. */
+  const scrollToPage = (pageIndex: number, behavior: ScrollBehavior) => {
+    if (
+      !Number.isInteger(pageIndex) ||
+      pageIndex < 0 ||
+      pageIndex >= pageHeights.length
+    ) {
+      return false;
+    }
+    const top = Math.max(0, cumulative[pageIndex] - PAGE_GAP_PX);
+    getScrollElement().scrollTo({ top, behavior });
+    return true;
+  };
+
+  /* a scroll request for an annotation: jump to its first page */
+  useLayoutEffect(() => {
+    const target = request?.target;
+    if (target?.kind !== "annotation") return;
+    const annotation = allAnnotations.find((a) => a.id === target.id);
+    const firstPage = annotation ? annotationPages(annotation)[0] : undefined;
+    // Instant, like the page's centring that follows: the request completes
+    // with the box in view.
+    if (firstPage !== undefined) scrollToPage(firstPage, "instant");
+    // Keyed on the request only: one jump per request.
+  }, [request]);
+
   useLayoutEffect(() => {
     controlsRef.current = {
-      scrollToPage(pageIndex, behavior) {
-        if (
-          !Number.isInteger(pageIndex) ||
-          pageIndex < 0 ||
-          pageIndex >= pageHeights.length
-        ) {
-          return false;
-        }
-        const top = Math.max(0, cumulative[pageIndex] - PAGE_GAP_PX);
-        getScrollElement().scrollTo({ top, behavior });
-        return true;
-      },
+      scrollToPage,
       getVisiblePageRange() {
         const measured = measureWindow();
         return measured ? [measured.visible[0], measured.visible[1]] : null;
@@ -430,6 +455,7 @@ export function PdfViewport({
               <PdfPage
                 pageInfo={pInfo}
                 onZoomRenderRequest={requestPageRender}
+                enableNativeLinks={enableNativeLinks}
               />
             )}
           </div>

@@ -13,6 +13,7 @@ import { atom } from "jotai";
 import type { InternalAnnotation } from "../normalize";
 import type {
   AnnotationLabel,
+  AnnotatorCommonProps,
   Highlight,
   LabelDisplay,
   PendingSelection,
@@ -45,6 +46,14 @@ export const selectedAnnotationIdsAtom = atom<string[]>(
 export const selectedRelationIdsAtom = atom<string[]>(
   frozenEmptyList<string>()
 );
+/** The relations named by `selectedRelationIds` that exist, in that order. */
+export const selectedRelationsAtom = atom<Relation[]>((get) => {
+  const relations = get(relationsAtom);
+  return get(selectedRelationIdsAtom).flatMap((id) => {
+    const relation = relations.find((candidate) => candidate.id === id);
+    return relation ? [relation] : [];
+  });
+});
 /** Document zoom; 1 is the page at its natural size. */
 export const zoomAtom = atom<number>(1);
 /** True once the initial zoom (e.g. fit-to-width) has been resolved. */
@@ -86,6 +95,18 @@ export const DEFAULT_DISPLAY_SETTINGS: Readonly<DisplaySettings> =
 export const displaySettingsAtom = atom<DisplaySettings>(
   DEFAULT_DISPLAY_SETTINGS
 );
+
+// ---------------------------------------------------------------------------
+// Render slots rendered by formats
+// ---------------------------------------------------------------------------
+
+/**
+ * The host's `renderAnnotationActions`. Wrapped in an object: a function
+ * written to an atom would be taken for an updater.
+ */
+export const annotationActionsSlotAtom = atom<{
+  render: AnnotatorCommonProps["renderAnnotationActions"];
+}>(Object.freeze({ render: undefined }));
 
 // ---------------------------------------------------------------------------
 // Editing, DOM and document status

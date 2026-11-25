@@ -22,3 +22,15 @@ export async function serveFixtures(page: Page): Promise<void> {
     await route.fulfill({ path: `fixtures/${relative}` });
   });
 }
+
+/**
+ * A JSON fixture, e.g. `fetchFixture(page, "eton/annotations.json")`, fetched
+ * in the page (so `serveFixtures` must have been called).
+ */
+export function fetchFixture<T>(page: Page, relative: string): Promise<T> {
+  return page.evaluate(async (path) => {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    return response.json();
+  }, `${FIXTURES_URL_SEGMENT}${relative}`) as Promise<T>;
+}

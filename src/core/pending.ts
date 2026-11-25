@@ -16,8 +16,9 @@
  * it to the annotations itself.
  */
 import { atom, useAtomValue } from "jotai";
-import { useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
+import { eventCallbacks } from "./callbacks";
 import { ESCAPE_KEY } from "./constants";
 import { devWarnOnce } from "./devWarn";
 import { useAnnotatorStore } from "./state/AnnotatorProvider";
@@ -29,26 +30,10 @@ import {
 } from "./state/atoms";
 import type {
   AnnotationDraft,
-  AnnotatorCommonProps,
   AnnotatorHandle,
   PendingActions,
   PendingSelection,
 } from "./types";
-
-/** The common props the pending selection calls back into. */
-type SelectionCallbacks = Pick<
-  AnnotatorCommonProps,
-  "onTextSelect" | "onCreateAnnotation" | "onError" | "renderSelectionMenu"
->;
-
-/**
- * The latest callbacks, in a holder of the instance's own: formats complete
- * selections without access to the props, and a callback must be read when
- * it is needed, not when it was last rendered. A derived atom without
- * dependencies is computed once per store and then kept (the same trick as
- * `devWarn.ts`), so each instance gets a holder of its own.
- */
-const callbacksAtom = atom(() => ({ current: {} as SelectionCallbacks }));
 
 /** Whether a selection is pending; unlike the selection, it rarely changes. */
 const hasPendingSelectionAtom = atom(
@@ -58,21 +43,6 @@ const hasPendingSelectionAtom = atom(
 /** The actions of a pending selection, without the selection itself. */
 type PendingControls = Pick<PendingActions, "commit" | "clear" | "copyText">;
 
-/** Makes the shell's current callbacks readable at event time. */
-export function useSyncSelectionCallbacks(callbacks: SelectionCallbacks): void {
-  const store = useAnnotatorStore("useSyncSelectionCallbacks");
-  const { onTextSelect, onCreateAnnotation, onError, renderSelectionMenu } =
-    callbacks;
-  useLayoutEffect(() => {
-    store.get(callbacksAtom).current = {
-      onTextSelect,
-      onCreateAnnotation,
-      onError,
-      renderSelectionMenu,
-    };
-  }, [store, onTextSelect, onCreateAnnotation, onError, renderSelectionMenu]);
-}
-
 /**
  * A rejected `onCreateAnnotation` promise goes to `onError`. The library's
  * catch is also what keeps it from being an unhandled rejection, so without
@@ -80,7 +50,7 @@ export function useSyncSelectionCallbacks(callbacks: SelectionCallbacks): void {
  */
 function reportCreateFailure(store: AnnotatorStore, reason: unknown): void {
   const error = reason instanceof Error ? reason : new Error(String(reason));
-  const { onError } = store.get(callbacksAtom).current;
+  const { onError } = eventCallbacks(store);
   if (onError) {
     onError(error);
     return;
@@ -123,9 +93,7 @@ function createControls(
       // Cleared first and not awaited, so the selection is gone whether the
       // callback returns, rejects or never settles.
       store.set(pendingSelectionAtom, null);
-      const result = store.get(callbacksAtom).current.onCreateAnnotation?.(
-        draft
-      );
+      const result = eventCallbacks(store).onCreateAnnotation?.(draft);
       void Promise.resolve(result).catch((reason: unknown) =>
         reportCreateFailure(store, reason)
       );
@@ -168,13 +136,13 @@ function completeSelection(
   // `onTextSelect`, the commit of outcome 2 below finds it gone and does
   // nothing, so the host's own handling is never doubled.
   const controls = createControls(store, pending);
-  store.get(callbacksAtom).current.onTextSelect?.(pending, {
+  eventCallbacks(store).onTextSelect?.(pending, {
     pending,
     anchor: pending.anchor,
     ...controls,
   });
 
-  if (store.get(callbacksAtom).current.renderSelectionMenu) return; // outcome 1
+  if (eventCallbacks(store).renderSelectionMenu) return; // outcome 1
   const { readOnly, activeLabel } = store.get(editingAtom);
   if (!readOnly && activeLabel) controls.commit(); // outcome 2
   // Outcome 3: it stays pending.
