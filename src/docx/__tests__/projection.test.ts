@@ -15,7 +15,9 @@ import {
   PENDING_LABEL_ID,
 } from "../constants";
 import {
+  anchoredInHtml,
   buildProjection,
+  projectionSource,
   suppressedTargets,
   withoutIndentation,
 } from "../projection";
@@ -405,4 +407,70 @@ test("a structural span that gave way is reported as not drawn", () => {
     { id: "s-alone", labelId: "label-1" },
   ]);
   expect([...suppressed.annotation]).toEqual(["s-para"]);
+});
+
+describe("projectionSource", () => {
+  it("closes the elements HTML writes without an end tag, and keeps the rest", () => {
+    const { markup, text } = projectionSource(
+      '<p class="a">one<br>two&nbsp;<img src="data:image/png;base64,AA=="></p>' +
+        "<table><colgroup><col><col></colgroup><tbody><tr><td>x</td></tr></tbody></table>"
+    );
+    const parsed = new DOMParser().parseFromString(
+      `<root>${markup}</root>`,
+      "application/xml"
+    );
+    expect(parsed.querySelector("parsererror")).toBeNull();
+    expect(parsed.getElementsByTagName("br")).toHaveLength(1);
+    expect(parsed.getElementsByTagName("col")).toHaveLength(2);
+    expect(parsed.getElementsByTagName("img")).toHaveLength(1);
+    expect(parsed.getElementsByTagName("td")).toHaveLength(1);
+    expect(parsed.getElementsByTagName("p")[0].getAttribute("class")).toBe("a");
+    expect(parsed.documentElement.textContent).toBe("onetwo\u00a0x");
+    expect(text).toBe("onetwo\u00a0x");
+  });
+});
+
+describe("anchoredInHtml", () => {
+  const projected = (rawTexts: string[]) =>
+    buildProjection({
+      text: rawTexts.join("\n"),
+      annotations: rawTexts.map((rawText, index) =>
+        span(`a-${index}`, 0, 1, { rawText })
+      ),
+      highlights: [],
+      activeHighlightId: null,
+    }).set;
+  const anchors = (set: ReturnType<typeof projected>) =>
+    set.labelledText.map((item) => [
+      item.rawText,
+      (item.annotationJson as { text: string }).text,
+    ]);
+
+  it("spells an anchor text as the HTML does where they differ only in the kind of space", () => {
+    const set = anchoredInHtml(
+      projected(["The IC hereby grants", "grants"]),
+      "5.The\u00a0IC\u00a0hereby grants to the\u00a0Licensee"
+    );
+    expect(anchors(set)).toEqual([
+      ["The\u00a0IC\u00a0hereby grants", "The\u00a0IC\u00a0hereby grants"],
+      ["grants", "grants"],
+    ]);
+  });
+
+  it("reads a no-break space of the anchor text as a plain one too", () => {
+    const set = anchoredInHtml(projected(["a\u00a0b c"]), "xa b\u00a0cy");
+    expect(anchors(set)).toEqual([["a b\u00a0c", "a b\u00a0c"]]);
+  });
+
+  it("takes the first place the text is found, and leaves alone a text found nowhere", () => {
+    const before = projected(["to the", "absent text"]);
+    const set = anchoredInHtml(before, "to the\u00a0one, to\u00a0the other");
+    expect(anchors(set)).toEqual([
+      ["to the", "to the"],
+      ["absent text", "absent text"],
+    ]);
+    // Unchanged entries are the same objects.
+    expect(set.labelledText[0]).toBe(before.labelledText[0]);
+    expect(set.labelledText[1]).toBe(before.labelledText[1]);
+  });
 });

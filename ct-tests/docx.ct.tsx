@@ -1033,6 +1033,84 @@ test("scrollToAnnotation on a span the engine did not draw resolves false at onc
   expect(elapsed.ms).toBeLessThan(PROMPT_MS);
 });
 
+test("annotations are drawn on a document whose HTML has a line break, table columns and an image", async ({
+  mount,
+  page,
+}) => {
+  // features.txt: a paragraph or table cell per line.
+  const text = [
+    "Features",
+    "Heading 1",
+    "Heading 2",
+    "bold italic underlined struck supersub\tafter a tab",
+    "after a break",
+    "First item",
+    "Nested item",
+    "Term",
+    "Meaning",
+    "Spanning both columns",
+  ].join("\n");
+  const spanOfText = (rawText: string, id: string): Annotation => {
+    const start = text.indexOf(rawText);
+    return {
+      id,
+      annotationLabel: CLAUSE_LABEL,
+      rawText,
+      json: { start, end: start + rawText.length },
+    };
+  };
+  await mount(
+    <DocxHarness
+      fixture="features"
+      extraAnnotations={[
+        spanOfText("after a break", "f-break"),
+        spanOfText("Spanning both columns", "f-cell"),
+      ]}
+    />
+  );
+  await waitForDocumentLoad(page);
+
+  await expect(annotationParts(page, "f-break")).toHaveText(["after a break"]);
+  await expect(annotationParts(page, "f-cell")).toHaveText([
+    "Spanning both columns",
+  ]);
+  // The document itself is as it was: its break, its table and its image.
+  await expect(pages(page).locator("br")).toHaveCount(1);
+  await expect(pages(page).locator("td")).toHaveCount(6);
+  await expect(pages(page).locator("img")).toHaveCount(1);
+});
+
+test("an annotation across runs of different formatting is drawn, a part per run", async ({
+  mount,
+  page,
+}) => {
+  // The first runs of the fixture's fourth paragraph, each ending in a
+  // space: docxodus writes that space as a no-break space in its HTML.
+  const rawText = "bold italic underlined";
+  const start = "Features\nHeading 1\nHeading 2\n".length;
+  await mount(
+    <DocxHarness
+      fixture="features"
+      extraAnnotations={[
+        {
+          id: "f-runs",
+          annotationLabel: CLAUSE_LABEL,
+          rawText,
+          json: { start, end: start + rawText.length },
+        },
+      ]}
+    />
+  );
+  await waitForDocumentLoad(page);
+
+  await expect(annotationParts(page, "f-runs")).toHaveText([
+    "bold",
+    "italic",
+    "underlined",
+  ]);
+  expect(await callHandle(page, "scrollToAnnotation", ["f-runs"])).toBe(true);
+});
+
 test("with showStructural on, a structural paragraph gives way to an annotation strictly inside it", async ({
   mount,
   page,

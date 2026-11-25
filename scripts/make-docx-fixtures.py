@@ -18,11 +18,13 @@
 - hyperlink.docx (+ hyperlink.txt): test.docx with a body of its own whose
   hyperlinks go to an absolute `https` URL, a relative URL, a `mailto` URL
   and a bookmark in the document.
-- features.docx: test.docx with a body of its own that exercises what
+- features.docx (+ features.txt): test.docx with a body of its own that exercises what
   docxodus converts besides plain paragraphs: a title and headings, bold,
   italic, underlined, struck, superscript and subscript runs, a tab, a line
   break, list items, a table with a header row and merged cells, an image and
-  a page break. For the sanitiser's parity check.
+  a page break. For the sanitiser's parity check, and for annotating a
+  document whose HTML has elements without an end tag (a line break, a
+  table's columns, an image).
 
 Deterministic: re-running writes identical bytes.
 
@@ -128,6 +130,26 @@ def inline_image() -> str:
         '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
         "</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"
     )
+
+
+# The text of features.docx, a paragraph or table cell per line.
+FEATURES_TEXT = [
+    "Features",
+    "Heading 1",
+    "Heading 2",
+    "bold italic underlined struck supersub\tafter a tab",
+    "after a break",
+    "First item",
+    "Nested item",
+    "Term",
+    "Meaning",
+    "Spanning both columns",
+    "Spanning two rows",
+    "first",
+    "second",
+    " after an image",
+    "After a page break.",
+]
 
 
 def features_document(source: str) -> str:
@@ -273,6 +295,7 @@ def main() -> None:
         },
         {IMAGE_PART: png_pixel()},
     )
+    (FIXTURES / "features.txt").write_text("".join(f"{text}\n" for text in FEATURES_TEXT), encoding="utf-8")
 
 
 if __name__ == "__main__":

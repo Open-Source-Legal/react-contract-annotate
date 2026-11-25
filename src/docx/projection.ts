@@ -27,11 +27,16 @@
  * deterministic (no timestamps), so equal input projects to an equal set.
  * As in OpenContracts, docxodus anchors an annotation by its `rawText`; an
  * annotation without one (it is optional here) is anchored by the text its
- * offsets name.
+ * offsets name. Changed from OpenContracts too: the HTML is handed to
+ * docxodus as XML (`projectionSource`) and each anchor text in the HTML's
+ * own spelling (`anchoredInHtml`); without the first no annotation was drawn
+ * on a document with a line break, a table or an image, and without the
+ * second none that crossed runs of different formatting at a space.
  */
 import type {
   AnnotationLabel as DocxodusLabel,
   ExternalAnnotationSet,
+  TextSpan,
 } from "docxodus";
 
 import { highlightColor, labelColor } from "../core/index";
@@ -127,6 +132,78 @@ const SERIALIZER_INDENTATION = />\n[ \t]*</g;
 /** Projected HTML without the indentation docxodus added to it. */
 export function withoutIndentation(html: string): string {
   return html.replace(SERIALIZER_INDENTATION, "><");
+}
+
+/** What docxodus' projection is given of a document, besides the set. */
+export interface ProjectionSource {
+  /** The document's HTML as XML, which the projection parses. */
+  markup: string;
+  /** The text of that HTML, which the projection searches. */
+  text: string;
+}
+
+/**
+ * `html` as docxodus' projection can read it. The projection parses its
+ * input as XML, and HTML writes some elements without an end tag (`<br>`,
+ * `<col>`, `<img>`), which XML reads as never closed: with one of them in
+ * the document the projection fails and no annotation is drawn. Serialising
+ * the parsed HTML as XML writes every element closed, and changes nothing
+ * else the projection looks at.
+ */
+export function projectionSource(html: string): ProjectionSource {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const serializer = new XMLSerializer();
+  return {
+    markup: Array.from(template.content.childNodes, (node) =>
+      serializer.serializeToString(node)
+    ).join(""),
+    text: template.content.textContent ?? "",
+  };
+}
+
+const NO_BREAK_SPACES = /\u00a0/g;
+
+/** `text` with its no-break spaces as plain ones (the length is the same). */
+function withPlainSpaces(text: string): string {
+  return text.replace(NO_BREAK_SPACES, " ");
+}
+
+/**
+ * `set` with each entry's anchor text spelt as the document's HTML spells it.
+ * docxodus finds an entry by searching the text of the HTML for its anchor
+ * text, character for character, and its converted HTML (12.4.1) writes the
+ * space at the start or the end of a run as a no-break space, where the
+ * text of the same document (and so an annotation's `rawText`) has a plain
+ * space: an annotation that crossed such a run edge was never found, and not
+ * drawn. An anchor text found in `htmlText` once the two kinds of space are
+ * read alike is replaced by what `htmlText` has there (the first place, which
+ * is the one docxodus then finds); one not found even so is left as it is.
+ */
+export function anchoredInHtml(
+  set: ExternalAnnotationSet,
+  htmlText: string
+): ExternalAnnotationSet {
+  const plainHtmlText = withPlainSpaces(htmlText);
+  return {
+    ...set,
+    labelledText: set.labelledText.map((item) => {
+      const at = plainHtmlText.indexOf(withPlainSpaces(item.rawText));
+      if (at < 0) return item;
+      const anchorText = htmlText.slice(at, at + item.rawText.length);
+      return anchorText === item.rawText
+        ? item
+        : {
+            ...item,
+            rawText: anchorText,
+            // Every entry of a projection is a span (see `entry`).
+            annotationJson: {
+              ...(item.annotationJson as TextSpan),
+              text: anchorText,
+            },
+          };
+    }),
+  };
 }
 
 /** What `buildProjection` makes: the set, and what was left out of it. */
