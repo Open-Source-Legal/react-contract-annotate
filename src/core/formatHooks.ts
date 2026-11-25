@@ -11,6 +11,7 @@ import { eventCallbacks } from "./callbacks";
 import { DOCUMENT_ERROR_MESSAGE } from "./constants";
 import { devWarnOnce } from "./devWarn";
 import type { InternalAnnotation } from "./normalize";
+import { dropPendingSelection } from "./pending";
 import { useAnnotatorStore } from "./state/AnnotatorProvider";
 import {
   activeHighlightIdAtom,
@@ -88,8 +89,12 @@ export function useDocumentStatus(): DocumentStatus {
 
 /**
  * Reports the format's loading state. The shell renders the loading / error
- * slots and fires `onDocumentLoad` / `onError` from it. Stable for the life
- * of the instance; a report equal to the current status is not written.
+ * slots and fires `onDocumentLoad` / `onError` from it. Move to `"loading"`
+ * only when a different document starts loading (progress reports while it
+ * loads are fine): entering it re-arms `onDocumentLoad` and the scroll to a
+ * selection present once the document is ready (the deep link), and clears
+ * the pending selection. Stable for the life of the instance; a report equal
+ * to the current status is not written.
  */
 export function useSetDocumentStatus(): (
   status: DocumentStatusUpdate
@@ -97,6 +102,10 @@ export function useSetDocumentStatus(): (
   const store = useAnnotatorStore("useSetDocumentStatus");
   return useCallback(
     ({ state, progress = null, error = null }: DocumentStatusUpdate) => {
+      // A pending selection belongs to the document it was made in.
+      if (state === "loading" && store.get(documentStatusAtom).state !== state) {
+        dropPendingSelection(store);
+      }
       store.set(documentStatusAtom, (prev) => {
         // A failure reported without an error keeps the one already
         // recorded, so repeating the report changes nothing.
@@ -140,6 +149,27 @@ export function useActiveHighlightId(): string | null {
 export function useAllAnnotations(): InternalAnnotation[] {
   const store = useAnnotatorStore("useAllAnnotations");
   return useAtomValue(annotationsAtom, { store });
+}
+
+/**
+ * A stable function returning every annotation (normalised) and every
+ * highlight as the annotator holds them when it is called. For the driver's
+ * methods (`canDraw` above all), which the shell and the host's handle calls
+ * may ask in the commit that supplies new data, before any render shows it:
+ * a value read during render is one commit behind there.
+ */
+export function useReadDocumentData(): () => {
+  annotations: InternalAnnotation[];
+  highlights: Highlight[];
+} {
+  const store = useAnnotatorStore("useReadDocumentData");
+  return useCallback(
+    () => ({
+      annotations: store.get(annotationsAtom),
+      highlights: store.get(highlightsAtom),
+    }),
+    [store]
+  );
 }
 
 /** The relations named by `selectedRelationIds` that exist, in that order. */

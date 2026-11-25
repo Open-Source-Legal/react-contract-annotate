@@ -116,7 +116,6 @@ const ROOT_STYLE = Object.freeze({
   "--rca-z-highlight": THEME_DEFAULTS.zHighlight,
   "--rca-z-pending": THEME_DEFAULTS.zPending,
   "--rca-z-menu": THEME_DEFAULTS.zMenu,
-  "--rca-structural-color": THEME_DEFAULTS.structuralColor,
 }) as CSSProperties;
 
 /**
@@ -216,6 +215,10 @@ function useBridgedState<M>(
   common: AnnotatorCommonProps<M>
 ): void {
   const { zoom, defaultZoom = "fit-width" } = common;
+  // A numeric default is clamped; one that is not finite is ignored, and the
+  // fit-to-width default applies.
+  const numericDefaultZoom =
+    typeof defaultZoom === "number" ? clampZoom(defaultZoom) : null;
 
   useControllable<string[]>("selection", {
     value: common.selectedAnnotationIds,
@@ -225,7 +228,7 @@ function useBridgedState<M>(
   });
   useControllable<number>("zoom", {
     value: zoom,
-    defaultValue: typeof defaultZoom === "number" ? defaultZoom : NATURAL_ZOOM,
+    defaultValue: numericDefaultZoom ?? NATURAL_ZOOM,
     onChange: (next) => common.onZoomChange?.(next),
   });
   useControllable<string | null>("activeHighlight", {
@@ -240,7 +243,7 @@ function useBridgedState<M>(
   const seeded = useRef(false);
   if (!seeded.current) {
     seeded.current = true;
-    if (zoom !== undefined || typeof defaultZoom === "number") {
+    if (zoom !== undefined || numericDefaultZoom !== null) {
       store.set(zoomInitialisedAtom, true);
     }
   }
@@ -362,8 +365,11 @@ function usePropSync<M>(
 // Zoom
 // ---------------------------------------------------------------------------
 
-function clampZoom(zoom: number): number {
-  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
+/** `zoom` within the zoom bounds; null when it is not a finite number. */
+function clampZoom(zoom: number): number | null {
+  return Number.isFinite(zoom)
+    ? Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
+    : null;
 }
 
 function roundZoom(zoom: number): number {
@@ -378,13 +384,16 @@ function measuredFitWidth(store: AnnotatorStore): number | null {
 
 /**
  * Sets the zoom (clamped) as an api change, and marks the initial zoom as
- * decided so a later fit-to-width resolution does not override it.
+ * decided so a later fit-to-width resolution does not override it. A zoom
+ * that is not a finite number is ignored.
  */
 function useApplyZoom(store: AnnotatorStore): (zoom: number) => void {
   const setZoom = useSetControllable<number>("zoom");
   return useCallback(
     (zoom: number) => {
-      setZoom(clampZoom(zoom), API);
+      const next = clampZoom(zoom);
+      if (next === null) return;
+      setZoom(next, API);
       store.set(zoomInitialisedAtom, true);
     },
     [store, setZoom]
@@ -464,10 +473,10 @@ type ChangeScroll<T> = {
   valueAtom: Atom<T>;
   /** The id to scroll to for a value; null when there is nothing. */
   idOf: (value: T) => string | null;
-  /** The document data the id must appear in before the change is handled. */
+  /** The document data the id must appear in before the change is evaluated. */
   dataAtom: Atom<readonly { id: string }[]>;
   equals: (a: T, b: T) => boolean;
-  /** Whether a change may raise a request; read when the change is handled. */
+  /** Whether a change may raise a request; read when the change is evaluated. */
   enabled: boolean;
   quiet: QuietSlot<T>;
 };

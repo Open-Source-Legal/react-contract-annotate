@@ -32,6 +32,7 @@ import {
   useDocumentStatus,
   useHighlights,
   useNotifyDrawabilityChanged,
+  useReadDocumentData,
   useRegisterFormatDriver,
   useRenderAnnotationActions,
 } from "../core/index";
@@ -162,15 +163,17 @@ function DocxFormat({
   const ready = useDocumentStatus().state === "ready";
   /** What the last projection laid out did not draw (`DocxView`). */
   const suppressedRef = useRef<TargetIds | null>(null);
-  const annotations = useAllAnnotations();
   const highlights = useHighlights();
+  const readData = useReadDocumentData();
   useUnsupportedWarnings(hasSelectedRelations);
 
-  // The driver reads these at call time, through refs updated before any
-  // effect of the shell can call it.
-  const latest = useRef({ text, ready, annotations, highlights });
+  // The driver reads the annotations and highlights from the store when it
+  // is called (they may have arrived in this very commit), and the text and
+  // readiness through a ref updated before any effect of the shell can call
+  // it.
+  const latest = useRef({ text, ready });
   useLayoutEffect(() => {
-    latest.current = { text, ready, annotations, highlights };
+    latest.current = { text, ready };
   });
   useRegisterFormatDriver({
     kind: "span",
@@ -181,15 +184,14 @@ function DocxFormat({
       findSpanMatches(latest.current.text, query, opts),
     scrollToPage: () => false,
     resolveFitWidth: () => 1,
-    canDraw: (target) =>
-      latest.current.ready &&
-      drawable(
-        target,
-        latest.current.annotations,
-        latest.current.highlights,
-        latest.current.text
-      ) &&
-      !suppressedRef.current?.[target.kind].has(target.id),
+    canDraw: (target) => {
+      if (!latest.current.ready) return false;
+      const data = readData();
+      return (
+        drawable(target, data.annotations, data.highlights, latest.current.text) &&
+        !suppressedRef.current?.[target.kind].has(target.id)
+      );
+    },
   });
 
   // What is drawable depends on the text and the highlights, and on the

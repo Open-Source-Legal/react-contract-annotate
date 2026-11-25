@@ -32,7 +32,9 @@ export interface FormatDriver {
    * status or the driver changes, and when the format calls the function
    * from `useNotifyDrawabilityChanged()`. A format whose answer can turn
    * true for any other reason (pages laid out, a projection finished) must
-   * call it then.
+   * call it then. It may be asked in the commit that supplies the target,
+   * before any render has shown it: read the annotations and highlights
+   * with `useReadDocumentData()` when it is called, not from a render.
    */
   canDraw(target: ScrollTarget): boolean;
 }

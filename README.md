@@ -304,10 +304,8 @@ annotation that the display filters hide (`showStructural`, `visibleLabelIds`,
 `showSelectedOnly`) still counts as drawable: `scrollToAnnotation` without
 `{ select: true }` resolves `false` at the bounded timeout, and with it the
 annotation is selected, revealed and scrolled to. A jump to an id the viewer
-has not received yet resolves `false`. The viewer takes new annotations and
-highlights in as the render that supplies them ends, and an effect of that same
-render still runs too early: wait a frame (`requestAnimationFrame`) after
-supplying the target, as the demo does after setting search hits.
+has not received yet resolves `false`: make it from an effect or a handler after
+the render that supplies the target.
 
 `findText` returns `Highlight[]` that you can pass straight back through
 `highlights` (token-string search on PDF, substring search over `text` on DOCX).
@@ -501,8 +499,8 @@ export function ExportedDocument({
 
 ## Theming
 
-Colours come from labels. Layout, stacking and the font are CSS custom
-properties.
+Colours come from labels, structural annotations included. Layout, stacking and
+the font are CSS custom properties.
 
 Set on the viewer's root element (inline, with these defaults). Override them
 with the `style` prop:
@@ -513,8 +511,7 @@ with the `style` prop:
 | `--rca-z-annotation` | `2` | annotation boxes (PDF) |
 | `--rca-z-highlight` | `auto` | highlight boxes (PDF) |
 | `--rca-z-pending` | `2` | the pending selection (PDF) |
-| `--rca-z-menu` | `9999` | the `renderSelectionMenu` host, which is portalled to `document.body` |
-| `--rca-structural-color` | `#616a6b` | defined and defaulted, but no renderer reads it yet: structural annotations are drawn in their label's colour |
+| `--rca-z-menu` | `9999` | the `renderSelectionMenu` host, which is portalled to the body of the viewer's document |
 
 Not set on the root; each is read as `var(--rca-…, default)`, so set it with
 `style`, `className` or on any ancestor:
@@ -541,7 +538,9 @@ half of the handle. The format registers a `FormatDriver` with
 - `resolveFitWidth()`: the zoom that fits the page width, or `null` until it can
   be measured (call `useNotifyFitWidthChanged()` when it may have changed).
 - `canDraw(target)`: whether it knows the id and can draw it now (call
-  `useNotifyDrawabilityChanged()` when the answer may change).
+  `useNotifyDrawabilityChanged()` when the answer may change). Read the
+  annotations and highlights with `useReadDocumentData()` when it is called: it
+  can be asked in the commit that supplies the target, before a render shows it.
 
 It reports loading through `useSetDocumentStatus` (the shell fires
 `onDocumentLoad` / `onError` and renders the loading and error slots from it),
@@ -557,7 +556,7 @@ annotations):
 ```tsx
 import {
   AnnotatorShell,
-  useAllAnnotations,
+  useReadDocumentData,
   useRegisterFormatDriver,
   useScrollRequest,
   useSetDocumentStatus,
@@ -575,14 +574,15 @@ export interface PlainTextAnnotatorProps extends AnnotatorCommonProps {
 
 function PlainTextFormat({ text }: { text: string }) {
   const setStatus = useSetDocumentStatus();
-  const annotations = useAllAnnotations();
+  const readData = useReadDocumentData();
   const { request, complete } = useScrollRequest();
 
   // Tell the shell the document is shown (it fires `onDocumentLoad` and
   // renders the loading and error slots from the status).
   useEffect(() => setStatus({ state: "ready" }), [setStatus]);
 
-  // Answer the format half of the handle.
+  // Answer the format half of the handle. `canDraw` reads the data when it is
+  // asked: a jump can come in the commit that supplies its target.
   useRegisterFormatDriver({
     kind: "span",
     getPageCount: () => null,
@@ -593,7 +593,7 @@ function PlainTextFormat({ text }: { text: string }) {
     resolveFitWidth: () => 1,
     canDraw: (target) =>
       target.kind === "annotation" &&
-      annotations.some((a) => a.id === target.id),
+      readData().annotations.some((a) => a.id === target.id),
   });
 
   // Carry out the scroll request the shell raised, then report the outcome.

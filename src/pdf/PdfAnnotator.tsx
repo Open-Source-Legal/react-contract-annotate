@@ -12,10 +12,10 @@ import type { ForwardedRef, ReactElement, RefAttributes } from "react";
 import {
   AnnotatorShell,
   computeFitToWidthZoom,
-  useAllAnnotations,
   useHighlights,
   useNotifyDrawabilityChanged,
   useNotifyFitWidthChanged,
+  useReadDocumentData,
   useRegisterFormatDriver,
   useRootElement,
 } from "../core/index";
@@ -82,8 +82,8 @@ function PdfFormat({
   onVisiblePagesChange,
 }: PdfFormatProps) {
   const pages = usePdfDocument(source, pawls);
-  const annotations = useAllAnnotations();
   const highlights = useHighlights();
+  const readData = useReadDocumentData();
   const root = useRootElement();
   const viewport = useRef<PdfViewportControls | null>(null);
 
@@ -91,17 +91,14 @@ function PdfFormat({
   // and `findText()` searches. Rebuilt with the pages.
   const searchIndex = useMemo(() => buildSearchIndex(pages), [pages]);
 
-  // The driver reads the pages, annotations, highlights and search index at
-  // call time, through refs updated before any effect of the shell can call
-  // it.
+  // The driver reads the annotations and highlights from the store when it
+  // is called (they may have arrived in this very commit), and the pages and
+  // search index through refs updated before any effect of the shell can
+  // call it.
   const pagesRef = useRef(pages);
-  const annotationsRef = useRef(annotations);
-  const highlightsRef = useRef(highlights);
   const searchIndexRef = useRef(searchIndex);
   useLayoutEffect(() => {
     pagesRef.current = pages;
-    annotationsRef.current = annotations;
-    highlightsRef.current = highlights;
     searchIndexRef.current = searchIndex;
   });
   const currentPages = () => pagesRef.current;
@@ -115,13 +112,17 @@ function PdfFormat({
     scrollToPage: (pageIndex, behavior) =>
       viewport.current?.scrollToPage(pageIndex, behavior) ?? false,
     resolveFitWidth: () => fitWidthZoom(currentPages(), root),
-    canDraw: (target) =>
-      scrollTargetPage(
-        target,
-        annotationsRef.current,
-        highlightsRef.current,
-        currentPages()
-      ) !== null,
+    canDraw: (target) => {
+      const data = readData();
+      return (
+        scrollTargetPage(
+          target,
+          data.annotations,
+          data.highlights,
+          currentPages()
+        ) !== null
+      );
+    },
   });
 
   // What is drawable depends on the pages (a highlight needs its tokens or

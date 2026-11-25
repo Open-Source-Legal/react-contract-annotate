@@ -147,13 +147,8 @@ export const THEME_DEFAULTS = {
   zPending: "2",
   /**
    * `--rca-z-menu`: stacking of the selection-menu host, which is portalled
-   * to `document.body`. OpenContracts' `Z_INDEX.CONTEXT_MENU` (9999), which
-   * its selection menu uses.
+   * to the body of the root's document. OpenContracts' `Z_INDEX.CONTEXT_MENU`
+   * (9999), which its selection menu uses.
    */
   zMenu: "9999",
-  /**
-   * `--rca-structural-color`: OpenContracts has no colour of its own for
-   * structural annotations; this is its default label grey.
-   */
-  structuralColor: DEFAULT_LABEL_COLOR,
 } as const;

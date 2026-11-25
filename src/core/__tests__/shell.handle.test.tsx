@@ -79,6 +79,26 @@ test("getZoom/setZoom/zoomIn/zoomOut, clamped to [0.5, 4], step 0.1", () => {
   );
 });
 
+test("setZoom ignores a zoom that is not a finite number", () => {
+  const onZoomChange = vi.fn();
+  const { handle } = setup({ defaultZoom: 1.5, onZoomChange });
+
+  for (const zoom of [Number.NaN, Number.POSITIVE_INFINITY, -Infinity]) {
+    act(() => handle().setZoom(zoom));
+    expect(handle().getZoom()).toBe(1.5);
+  }
+  expect(onZoomChange).not.toHaveBeenCalled();
+});
+
+test("a numeric defaultZoom is clamped to [0.5, 4]; one that is not finite is ignored", () => {
+  expect(setup({ defaultZoom: 9 }).handle().getZoom()).toBe(4);
+  expect(setup({ defaultZoom: 0.1 }).handle().getZoom()).toBe(0.5);
+  // Ignored: the default, fit-to-width, applies.
+  expect(setup({ defaultZoom: Number.NaN }).handle().getZoom()).toBe(
+    FAKE_FIT_WIDTH
+  );
+});
+
 test("setZoom('fit-width') uses driver.resolveFitWidth()", () => {
   const { handle } = setup({ defaultZoom: 2 });
   expect(handle().getZoom()).toBe(2);
@@ -287,7 +307,8 @@ test("className and style land on the root; a style override of --rca-z-annotati
   expect(computed.getPropertyValue("--rca-z-annotation")).toBe("7");
   expect(computed.getPropertyValue("--rca-z-highlight")).toBe("auto");
   expect(computed.getPropertyValue("--rca-z-pending")).toBe("2");
-  expect(computed.getPropertyValue("--rca-structural-color")).toBe("#616a6b");
+  // Structural annotations take their label's colour: no property of their own.
+  expect(computed.getPropertyValue("--rca-structural-color")).toBe("");
   expect(computed.getPropertyValue("--rca-font-family")).toContain(
     "sans-serif"
   );

@@ -242,7 +242,10 @@ export interface AnnotatorCommonProps<TMeta = unknown> {
   onSelectionChange?(ids: string[], info: ChangeInfo): void;
 
   zoom?: number;
-  /** Default `"fit-width"`. */
+  /**
+   * Default `"fit-width"`. A number is clamped to the zoom bounds (0.5 to 4);
+   * one that is not finite is ignored.
+   */
   defaultZoom?: number | "fit-width";
   onZoomChange?(zoom: number): void;
 
@@ -273,6 +276,12 @@ export interface AnnotatorCommonProps<TMeta = unknown> {
   /** Default false. */
   readOnly?: boolean;
   activeLabel?: AnnotationLabel | null;
+  /**
+   * Called when a pending selection is committed, after it has been cleared;
+   * the library never adds the draft to `annotations`. A throw goes to
+   * `onError` and leaves the selection pending (nothing was created); a
+   * returned promise is not awaited, and a rejection goes to `onError`.
+   */
   onCreateAnnotation?(draft: AnnotationDraft): void | Promise<void>;
   onTextSelect?(pending: PendingSelection, actions: PendingActions): void;
 
@@ -283,6 +292,12 @@ export interface AnnotatorCommonProps<TMeta = unknown> {
 
   // render slots: nothing is rendered when a slot is absent
   renderSelectionMenu?(ctx: SelectionMenuContext): ReactNode;
+  /**
+   * Host content inside an annotation's label chip, shown with the chip (PDF
+   * only). Its wrapper stops mousedown, touchstart and click from
+   * propagating: pressing or clicking it neither starts a text selection nor
+   * counts as a click on the annotation.
+   */
   renderAnnotationActions?(
     a: Annotation<TMeta>,
     ctx: { selected: boolean; hovered: boolean }
@@ -320,6 +335,7 @@ export interface AnnotatorHandle {
   ): boolean;
 
   getZoom(): number;
+  /** Clamped to the zoom bounds (0.5 to 4); a zoom that is not finite is ignored. */
   setZoom(zoom: number | "fit-width"): void;
   zoomIn(): void;
   zoomOut(): void;

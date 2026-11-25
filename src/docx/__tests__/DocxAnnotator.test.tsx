@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from "@testing-library/react";
-import { createRef } from "react";
+import { createRef, useEffect, useRef } from "react";
 import type { MockInstance } from "vitest";
 
 import type {
@@ -381,6 +381,73 @@ test("an annotation the engine did not draw resolves scrollToAnnotation false at
   ).resolves.toBe(false);
   // Not drawable, so not selected either.
   expect(handle().getSelectedAnnotationIds()).toEqual([]);
+});
+
+/**
+ * A host that, from an effect of the commit that passes its first highlight,
+ * jumps to it and activates it: `findText`, `highlights`, `scrollToHighlight`.
+ */
+function JumpingHost({
+  highlights,
+  onActiveHighlightChange,
+  onJump,
+}: {
+  highlights: Highlight[];
+  onActiveHighlightChange: (id: string | null) => void;
+  onJump: (result: Promise<boolean>) => void;
+}) {
+  const handleRef = useRef<AnnotatorHandle>(null);
+  const first = highlights[0]?.id;
+  useEffect(() => {
+    if (first) {
+      onJump(handleRef.current!.scrollToHighlight(first, { activate: true }));
+    }
+  }, [first, onJump]);
+  return (
+    <DocxAnnotator
+      ref={handleRef}
+      source={{ data: DATA }}
+      text={TEXT}
+      wasmBaseUrl="/wasm/"
+      annotations={[D1]}
+      highlights={highlights}
+      onActiveHighlightChange={onActiveHighlightChange}
+    />
+  );
+}
+
+test("a jump from an effect of the commit that supplies the highlight finds it", async () => {
+  // jsdom lays nothing out and cannot scroll.
+  const scrollIntoView = vi.fn();
+  Element.prototype.scrollIntoView = scrollIntoView;
+  const onActiveHighlightChange = vi.fn();
+  const jumps: Promise<boolean>[] = [];
+  const onJump = (result: Promise<boolean>) => jumps.push(result);
+  const element = (highlights: Highlight[]) => (
+    <JumpingHost
+      highlights={highlights}
+      onActiveHighlightChange={onActiveHighlightChange}
+      onJump={onJump}
+    />
+  );
+  const view = render(element([]));
+  await load();
+
+  view.rerender(
+    element([{ id: "h-1", target: { kind: "span", start: 13, end: 17 } }])
+  );
+
+  expect(jumps).toHaveLength(1);
+  // The target was known: the jump is under way rather than refused, and it
+  // activated the highlight.
+  const settled = await Promise.race([
+    jumps[0].then((scrolled) => (scrolled ? "scrolled" : "refused")),
+    flushPromises().then(() => "under way"),
+  ]);
+  expect(settled).not.toBe("refused");
+  expect(onActiveHighlightChange.mock.calls).toEqual([["h-1"]]);
+  view.unmount();
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
 });
 
 test("a document stylesheet that fails the check is dropped with one warning; annotations still render", async () => {

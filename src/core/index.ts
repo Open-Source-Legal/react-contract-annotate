@@ -34,6 +34,7 @@ export {
   useHighlights,
   useOnAnnotationClick,
   useOnAnnotationHover,
+  useReadDocumentData,
   useRenderAnnotationActions,
   useRootElement,
   useSelectedAnnotationIds,

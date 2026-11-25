@@ -14,15 +14,15 @@ import type { AnnotatorCommonProps } from "../types";
 const Z_MENU_PROPERTY = "--rca-z-menu";
 
 /**
- * The menu is portalled to `document.body`, outside the root that defines
- * the theming custom properties, so it cannot inherit `--rca-z-menu`: the
- * root's resolved value (the default, or the host's override) is copied onto
- * it.
+ * The menu is portalled to the body of the root's document, outside the root
+ * that defines the theming custom properties, so it cannot inherit
+ * `--rca-z-menu`: the root's resolved value (the default, or the host's
+ * override) is copied onto it.
  */
-function resolveZMenu(root: HTMLElement | null): string {
-  const resolved = root
-    ? getComputedStyle(root).getPropertyValue(Z_MENU_PROPERTY).trim()
-    : "";
+function resolveZMenu(root: HTMLElement): string {
+  const resolved = getComputedStyle(root)
+    .getPropertyValue(Z_MENU_PROPERTY)
+    .trim();
   return resolved || THEME_DEFAULTS.zMenu;
 }
 
@@ -39,7 +39,7 @@ export function SelectionMenuHost({
   const pending = usePendingSelection();
   const actions = usePendingActions();
   const root = useRootElement();
-  if (!pending || !render) return null;
+  if (!pending || !render || !root) return null;
 
   const { x, y } = clampMenuPosition(pending.anchor.x, pending.anchor.y);
   const style = {
@@ -59,6 +59,6 @@ export function SelectionMenuHost({
     >
       {render({ pending, anchor: pending.anchor, ...actions })}
     </div>,
-    document.body
+    root.ownerDocument.body
   );
 }

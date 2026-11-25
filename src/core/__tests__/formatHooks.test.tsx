@@ -1,8 +1,9 @@
 import { act, render, renderHook } from "@testing-library/react";
-import { createRef } from "react";
+import { createRef, useEffect, useLayoutEffect, useRef } from "react";
 
 import { AnnotatorShell } from "../AnnotatorShell";
 import { DOCUMENT_ERROR_MESSAGE } from "../constants";
+import { useRegisterFormatDriver } from "../format";
 import {
   useActiveHighlightId,
   useDevWarnOnce,
@@ -10,12 +11,19 @@ import {
   useDocumentStatus,
   useEditing,
   useHighlights,
+  useReadDocumentData,
   useRootElement,
   useSelectedAnnotationIds,
   useSetDocumentStatus,
   useZoom,
 } from "../formatHooks";
-import type { AnnotatorCommonProps, AnnotatorHandle } from "../types";
+import { useScrollRequest } from "../scroll";
+import type {
+  Annotation,
+  AnnotatorCommonProps,
+  AnnotatorHandle,
+  Highlight,
+} from "../types";
 import { annotation, highlight } from "./fakeFormat";
 
 const LABEL = { id: "l1", text: "Clause" };
@@ -117,6 +125,97 @@ test("an error reported without an Error records a generic one, kept on repeat",
   expect(seen.status).toBe(first);
 });
 
+/**
+ * A format whose `canDraw` knows only the data `useReadDocumentData` returns,
+ * and that completes every scroll request at once.
+ */
+function DataFormat() {
+  const readData = useReadDocumentData();
+  const setStatus = useSetDocumentStatus();
+  useLayoutEffect(() => setStatus({ state: "ready" }), [setStatus]);
+  useRegisterFormatDriver({
+    kind: "span",
+    getPageCount: () => null,
+    getVisiblePageRange: () => null,
+    getText: () => "",
+    findText: () => [],
+    scrollToPage: () => false,
+    resolveFitWidth: () => 1,
+    canDraw: (target) => {
+      const { annotations, highlights } = readData();
+      const known = target.kind === "annotation" ? annotations : highlights;
+      return known.some((item) => item.id === target.id);
+    },
+  });
+  const { request, complete } = useScrollRequest();
+  useEffect(() => {
+    if (request) complete(request.seq, true);
+  }, [request, complete]);
+  return null;
+}
+
+/**
+ * A host that jumps to the first highlight it passes, or to the annotation
+ * `jumpTo`, from an effect of the commit that passes it.
+ */
+function JumpingHost({
+  annotations,
+  highlights,
+  jumpTo,
+  onJump,
+}: {
+  annotations: Annotation[];
+  highlights: Highlight[];
+  jumpTo: string | null;
+  onJump: (result: Promise<boolean>) => void;
+}) {
+  const handleRef = useRef<AnnotatorHandle>(null);
+  const first = highlights[0]?.id;
+  useEffect(() => {
+    if (first) onJump(handleRef.current!.scrollToHighlight(first));
+  }, [first, onJump]);
+  useEffect(() => {
+    if (jumpTo) onJump(handleRef.current!.scrollToAnnotation(jumpTo));
+  }, [jumpTo, onJump]);
+  return (
+    <AnnotatorShell common={{ annotations, highlights }} handleRef={handleRef}>
+      <DataFormat />
+    </AnnotatorShell>
+  );
+}
+
+test("useReadDocumentData has the data a host supplies in the same commit as a jump to it", async () => {
+  const jumps: Promise<boolean>[] = [];
+  const onJump = (result: Promise<boolean>) => jumps.push(result);
+  const element = (props: {
+    annotations?: Annotation[];
+    highlights?: Highlight[];
+    jumpTo?: string | null;
+  }) => (
+    <JumpingHost
+      annotations={props.annotations ?? []}
+      highlights={props.highlights ?? []}
+      jumpTo={props.jumpTo ?? null}
+      onJump={onJump}
+    />
+  );
+  const view = render(element({}));
+
+  view.rerender(element({ highlights: [highlight("h1")] }));
+  view.rerender(
+    element({
+      highlights: [highlight("h1")],
+      annotations: [annotation("a2")],
+      jumpTo: "a2",
+    })
+  );
+
+  expect(jumps).toHaveLength(2);
+  await act(async () => {
+    await expect(Promise.all(jumps)).resolves.toEqual([true, true]);
+  });
+});
+
 /** Calls the warn-once function it gets with `key` on every render. */
 function Warner({ keyName }: { keyName: string }) {
   const warnOnce = useDevWarnOnce();
@@ -156,6 +255,7 @@ const HOOKS: [string, () => unknown][] = [
   ["useHighlights", () => useHighlights()],
   ["useActiveHighlightId", () => useActiveHighlightId()],
   ["useDevWarnOnce", () => useDevWarnOnce()],
+  ["useReadDocumentData", () => useReadDocumentData()],
 ];
 
 test.each(HOOKS)("%s throws outside an annotator", (name, hook) => {

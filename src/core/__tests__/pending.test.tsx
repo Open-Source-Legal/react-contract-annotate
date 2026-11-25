@@ -23,9 +23,12 @@ import {
   FAKE_ANCHOR,
   FAKE_DRAFT,
   FakeAnnotator,
+  LOADING,
+  READY,
   annotation,
   createRecorder,
 } from "./fakeFormat";
+import type { FakeStatus } from "./fakeFormat";
 
 const ACTIVE: AnnotationLabel = { id: "active", text: "Active" };
 const CHOSEN: AnnotationLabel = { id: "chosen", text: "Chosen" };
@@ -582,6 +585,45 @@ describe("onCreateAnnotation returning a promise", () => {
     expect(reported.message).toBe("nope");
   });
 
+  test("a synchronous throw is reported through onError like a rejection, and the selection stays pending", () => {
+    const failure = new Error("save failed at once");
+    const onError = vi.fn();
+    const { select, handle, menu } = setup({
+      onError,
+      onCreateAnnotation: () => {
+        throw failure;
+      },
+      renderSelectionMenu: (ctx) => (
+        <button data-testid="commit" onClick={() => ctx.commit(CHOSEN)} />
+      ),
+    });
+    select();
+
+    expect(() =>
+      fireEvent.click(menu()!.querySelector("[data-testid=commit]")!)
+    ).not.toThrow();
+    expect(onError.mock.calls).toEqual([[failure]]);
+    // Nothing was created: the selection and its menu are still there.
+    expect(handle().getPendingSelection()).toEqual(PENDING);
+    expect(menu()).not.toBeNull();
+  });
+
+  test("a synchronous throw from the immediate commit (outcome 2) does not escape the format", () => {
+    const failure = new Error("save failed at once");
+    const onError = vi.fn();
+    const { select, handle } = setup({
+      onError,
+      onCreateAnnotation: () => {
+        throw failure;
+      },
+      activeLabel: ACTIVE,
+    });
+
+    expect(() => select()).not.toThrow();
+    expect(onError.mock.calls).toEqual([[failure]]);
+    expect(handle().getPendingSelection()).toEqual(PENDING);
+  });
+
   test("without onError a rejection is neither unhandled nor silent", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
@@ -598,6 +640,58 @@ describe("onCreateAnnotation returning a promise", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe("a pending selection belongs to one document", () => {
+  function setupWithStatus(common: Partial<AnnotatorCommonProps>) {
+    const handleRef = createRef<AnnotatorHandle>();
+    const recorder = createRecorder();
+    const element = (status: FakeStatus) => (
+      <FakeAnnotator
+        common={{ annotations: [annotation("a1")], ...common }}
+        fake={{ recorder, status }}
+        handleRef={handleRef}
+      />
+    );
+    const view = render(element(READY));
+    const button = view.container.querySelector<HTMLElement>(
+      "[data-fake-select]"
+    )!;
+    return {
+      handle: () => handleRef.current!,
+      select: () => fireEvent.click(button),
+      menu: () => document.body.querySelector<HTMLElement>(MENU),
+      status: (next: FakeStatus) => view.rerender(element(next)),
+    };
+  }
+
+  test("it is cleared when the viewer starts loading another document, with its menu", () => {
+    const onCreateAnnotation = vi.fn();
+    const { select, handle, menu, status } = setupWithStatus({
+      onCreateAnnotation,
+      renderSelectionMenu: () => <i data-testid="slot" />,
+    });
+    select();
+    expect(handle().getPendingSelection()).toEqual(PENDING);
+
+    status(LOADING);
+
+    expect(handle().getPendingSelection()).toBeNull();
+    expect(menu()).toBeNull();
+    // Nothing of the old document is left to commit.
+    handle().commitPendingSelection(CHOSEN);
+    expect(onCreateAnnotation).not.toHaveBeenCalled();
+  });
+
+  test("a selection made once the next document is ready stays", () => {
+    const { select, handle, status } = setupWithStatus({});
+    status(LOADING);
+    status(READY);
+    select();
+    // Progress and readiness reports do not clear it.
+    status(READY);
+    expect(handle().getPendingSelection()).toEqual(PENDING);
   });
 });
 
@@ -678,6 +772,33 @@ describe("selection menu host", () => {
     // The anchor plus the default offset, inside the jsdom viewport.
     expect(host.style.left).toBe("110px");
     expect(host.style.top).toBe("130px");
+  });
+
+  test("is portalled to the body of the annotator's own document", () => {
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    const frameDocument = frame.contentDocument!;
+    const container = frameDocument.createElement("div");
+    frameDocument.body.append(container);
+    try {
+      const view = render(
+        <FakeAnnotator
+          common={{ annotations: [], renderSelectionMenu: () => <i /> }}
+          fake={{ recorder: createRecorder() }}
+          handleRef={null}
+        />,
+        { container }
+      );
+      fireEvent.click(container.querySelector("[data-fake-select]")!);
+
+      expect(frameDocument.body.querySelector(MENU)?.parentElement).toBe(
+        frameDocument.body
+      );
+      expect(document.body.querySelector(MENU)).toBeNull();
+      view.unmount();
+    } finally {
+      frame.remove();
+    }
   });
 
   test("flips to stay inside the viewport", () => {

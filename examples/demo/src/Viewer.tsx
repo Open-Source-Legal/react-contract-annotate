@@ -82,14 +82,11 @@ export function Viewer({ demo, mode, created, onCreate, log }: ViewerProps) {
     [log]
   );
 
-  // A new set of search hits: show the first. The viewer takes new highlights
-  // in as this commit ends, and a jump to an id it does not know yet resolves
-  // false, so the jump waits for the next frame.
+  // A new set of search hits: show the first, from an effect of the render
+  // that passes them to the viewer.
   const firstHitId = highlights[0]?.id;
   useEffect(() => {
-    if (firstHitId === undefined) return;
-    const frame = requestAnimationFrame(() => void showHit(firstHitId));
-    return () => cancelAnimationFrame(frame);
+    if (firstHitId !== undefined) void showHit(firstHitId);
   }, [highlights, firstHitId, showHit]);
 
   const activeHitIndex = highlights.findIndex(

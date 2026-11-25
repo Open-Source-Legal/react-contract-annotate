@@ -240,6 +240,34 @@ test("outcome 3: nothing configured -> region stays; handle.clearPendingSelectio
   expect(await callHandle(page, "getPendingSelection", [])).toBeNull();
 });
 
+test("a pending selection does not survive a change of document: its region, menu and draft are gone", async ({
+  mount,
+  page,
+}) => {
+  const component = await mount(
+    <PdfHarness annotationIds={[]} selectionMenu />
+  );
+  await ready(page);
+  const root = annotatorRoot(page);
+  await dragOverTokens(page, 0, 0, 1);
+  await expect(page.locator("[data-rca-selection-menu]")).toBeVisible();
+  await expect(pendingRegion(root, 0)).toHaveCount(1);
+
+  // Another document in the same viewer.
+  await component.update(
+    <PdfHarness annotationIds={[]} selectionMenu fixture="usc" />
+  );
+  await expect
+    .poll(async () => (await harnessEvents(page, "onDocumentLoad")).length)
+    .toBe(2);
+
+  await expect(page.locator("[data-rca-selection-menu]")).toHaveCount(0);
+  await expect(pendingRegion(root, 0)).toHaveCount(0);
+  expect(await callHandle(page, "getPendingSelection", [])).toBeNull();
+  await callHandle(page, "commitPendingSelection", []);
+  expect(await createdDrafts(page)).toEqual([]);
+});
+
 test("Escape removes a pending region", async ({ mount, page }) => {
   await mount(<PdfHarness annotationIds={[]} />);
   await ready(page);

@@ -5,7 +5,7 @@
  */
 import {
   AnnotatorShell,
-  useAllAnnotations,
+  useReadDocumentData,
   useRegisterFormatDriver,
   useScrollRequest,
   useSetDocumentStatus,
@@ -23,14 +23,15 @@ export interface PlainTextAnnotatorProps extends AnnotatorCommonProps {
 
 function PlainTextFormat({ text }: { text: string }) {
   const setStatus = useSetDocumentStatus();
-  const annotations = useAllAnnotations();
+  const readData = useReadDocumentData();
   const { request, complete } = useScrollRequest();
 
   // Tell the shell the document is shown (it fires `onDocumentLoad` and
   // renders the loading and error slots from the status).
   useEffect(() => setStatus({ state: "ready" }), [setStatus]);
 
-  // Answer the format half of the handle.
+  // Answer the format half of the handle. `canDraw` reads the data when it is
+  // asked: a jump can come in the commit that supplies its target.
   useRegisterFormatDriver({
     kind: "span",
     getPageCount: () => null,
@@ -41,7 +42,7 @@ function PlainTextFormat({ text }: { text: string }) {
     resolveFitWidth: () => 1,
     canDraw: (target) =>
       target.kind === "annotation" &&
-      annotations.some((a) => a.id === target.id),
+      readData().annotations.some((a) => a.id === target.id),
   });
 
   // Carry out the scroll request the shell raised, then report the outcome.

@@ -14,6 +14,10 @@
  *
  * Committing hands the draft to `onCreateAnnotation`; the library never adds
  * it to the annotations itself.
+ *
+ * A pending selection belongs to one document: it is dropped when the
+ * annotator starts loading another (`dropPendingSelection`, called by the
+ * document status setter).
  */
 import { atom, useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo } from "react";
@@ -44,9 +48,10 @@ const hasPendingSelectionAtom = atom(
 type PendingControls = Pick<PendingActions, "commit" | "clear" | "copyText">;
 
 /**
- * A rejected `onCreateAnnotation` promise goes to `onError`. The library's
- * catch is also what keeps it from being an unhandled rejection, so without
- * an `onError` the failure is at least warned about in development.
+ * A failed `onCreateAnnotation` (it threw, or its promise rejected) goes to
+ * `onError`. The library's catch is also what keeps a rejection from being
+ * unhandled, so without an `onError` the failure is at least warned about in
+ * development.
  */
 function reportCreateFailure(store: AnnotatorStore, reason: unknown): void {
   const error = reason instanceof Error ? reason : new Error(String(reason));
@@ -58,8 +63,8 @@ function reportCreateFailure(store: AnnotatorStore, reason: unknown): void {
   devWarnOnce(
     store,
     "create-annotation-rejected",
-    "onCreateAnnotation returned a promise that rejected, and no onError " +
-      `callback was supplied to report it to: ${error.message}`
+    "onCreateAnnotation failed, and no onError callback was supplied to " +
+      `report it to: ${error.message}`
   );
 }
 
@@ -93,7 +98,18 @@ function createControls(
       // Cleared first and not awaited, so the selection is gone whether the
       // callback returns, rejects or never settles.
       store.set(pendingSelectionAtom, null);
-      const result = eventCallbacks(store).onCreateAnnotation?.(draft);
+      let result: void | Promise<void>;
+      try {
+        result = eventCallbacks(store).onCreateAnnotation?.(draft);
+      } catch (reason: unknown) {
+        // A synchronous failure created nothing: the selection stays pending
+        // (unless the callback made a new one before it threw).
+        if (store.get(pendingSelectionAtom) === null) {
+          store.set(pendingSelectionAtom, pending);
+        }
+        reportCreateFailure(store, reason);
+        return;
+      }
       void Promise.resolve(result).catch((reason: unknown) =>
         reportCreateFailure(store, reason)
       );
@@ -181,6 +197,14 @@ export function usePendingSelection(): PendingSelection | null {
 export function usePendingActions(): PendingControls {
   const store = useAnnotatorStore("usePendingActions");
   return useMemo(() => createControls(store), [store]);
+}
+
+/**
+ * Drops whichever selection is pending, with no outcome. For the document
+ * status setter, when the annotator starts loading another document.
+ */
+export function dropPendingSelection(store: AnnotatorStore): void {
+  store.set(pendingSelectionAtom, null);
 }
 
 /** The pending-selection methods of the imperative handle. */
