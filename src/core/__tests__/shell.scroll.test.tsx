@@ -231,24 +231,26 @@ test("selection present at mount raises one request once documentStatus is 'read
   expect(recorder.requests).toHaveLength(1);
 });
 
-test("selection present at mount scrolls even with scrollOnSelect=false; later changes do not", () => {
-  const common = { scrollOnSelect: false, selectedAnnotationIds: ["a2"] };
+test("scrollOnSelect=false also suppresses the selection present at load; highlight and handle requests are unaffected", () => {
+  const common = {
+    scrollOnSelect: false,
+    selectedAnnotationIds: ["a2"],
+    highlights: HIGHLIGHTS,
+    activeHighlightId: "h1",
+  };
   const { handle, recorder, rerender } = setup(common, { status: LOADING });
-  expect(recorder.requests).toEqual([]);
-
   rerender(common, { status: READY });
-  expect(recorder.requests).toEqual([
-    {
-      seq: 1,
-      target: { kind: "annotation", id: "a2" },
-      behavior: "smooth",
-      bounded: false,
-    },
+  expect(recorder.requests.map((r) => [r.target, r.bounded])).toEqual([
+    [{ kind: "highlight", id: "h1" }, false],
   ]);
 
-  rerender({ ...common, selectedAnnotationIds: ["a1"] }, { status: READY });
-  act(() => handle().selectAnnotations(["a3"]));
-  expect(recorder.requests).toHaveLength(1);
+  act(() => {
+    void handle().scrollToAnnotation("a2");
+  });
+  expect(recorder.requests.map((r) => [r.target, r.bounded])).toEqual([
+    [{ kind: "highlight", id: "h1" }, false],
+    [{ kind: "annotation", id: "a2" }, true],
+  ]);
 });
 
 test("selection present at mount raises its request under StrictMode too", () => {

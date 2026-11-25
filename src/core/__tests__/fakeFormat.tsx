@@ -4,15 +4,14 @@
  * and (optionally) completes every scroll request on the next tick.
  */
 import { act } from "@testing-library/react";
-import { useSetAtom } from "jotai";
 import { useEffect, useLayoutEffect } from "react";
 import type { Ref } from "react";
 
 import { AnnotatorShell } from "../AnnotatorShell";
 import { useNotifyFitWidthChanged, useRegisterFormatDriver } from "../format";
+import { useSetDocumentStatus } from "../formatHooks";
 import type { ScrollRequest } from "../scroll";
 import { useScrollRequest } from "../scroll";
-import { documentStatusAtom } from "../state/atoms";
 import { useSetControllable } from "../state/controllable";
 import type { ControllableKey } from "../state/controllable";
 import type {
@@ -115,7 +114,7 @@ export function FakeFormat({
     notifyFitWidthChanged,
   ]);
 
-  const setStatus = useSetAtom(documentStatusAtom);
+  const setStatus = useSetDocumentStatus();
   useLayoutEffect(() => setStatus(status), [setStatus, status]);
 
   // A new driver object on every render, as a careless format would pass.

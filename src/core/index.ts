@@ -10,6 +10,20 @@ export type { AnnotatorShellProps } from "./AnnotatorShell";
 export { useNotifyFitWidthChanged, useRegisterFormatDriver } from "./format";
 export type { FormatDriver } from "./format";
 
+export {
+  useActiveHighlightId,
+  useDisplaySettings,
+  useDocumentStatus,
+  useEditing,
+  useHighlights,
+  useRootElement,
+  useSelectedAnnotationIds,
+  useSetDocumentStatus,
+  useZoom,
+} from "./formatHooks";
+export type { DocumentStatusUpdate } from "./formatHooks";
+export type { DisplaySettings, DocumentStatus } from "./state/atoms";
+
 export { useRequestScroll, useScrollRequest } from "./scroll";
 export type {
   ScrollRequest,

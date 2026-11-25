@@ -2,7 +2,8 @@
  * The format-agnostic half of every annotator. `AnnotatorShell` owns the
  * instance store, feeds the common props into it, renders the root element
  * (the scroll container) with the theming custom properties and the
- * loading / error slots, raises scroll requests for selection and highlight
+ * loading / error slots, fires `onDocumentLoad` / `onError` from the status
+ * the format reports, raises scroll requests for selection and highlight
  * changes, and implements the imperative handle on top of the driver the
  * format registers (see `format.ts`).
  */
@@ -132,6 +133,7 @@ function ShellBody<M>({ common, handleRef, children }: AnnotatorShellProps<M>) {
   useInitialFitWidth(store, applyZoom);
   useSelectionScroll(store, common.scrollOnSelect ?? true, quiet.selection);
   useHighlightScroll(store, quiet.highlight);
+  useDocumentLifecycle(store, common);
 
   const handle = useHandle(store, applyZoom, quiet);
   useImperativeHandle(handleRef, () => handle, [handle]);
@@ -355,6 +357,49 @@ function useInitialFitWidth(
 }
 
 // ---------------------------------------------------------------------------
+// Document lifecycle callbacks
+// ---------------------------------------------------------------------------
+
+/**
+ * Fires `onDocumentLoad` once per transition of the document status to
+ * `"ready"` (again after a reload), as soon as a driver is registered to
+ * answer it, and `onError` once per transition to `"error"`. The callbacks
+ * are read at firing time, so new inline callbacks never re-fire them.
+ */
+function useDocumentLifecycle<M>(
+  store: AnnotatorStore,
+  common: AnnotatorCommonProps<M>
+): void {
+  const { state, error } = useAtomValue(documentStatusAtom, { store });
+  const driver = useAtomValue(formatDriverAtom, { store });
+  const callbacks = useRef(common);
+  useLayoutEffect(() => {
+    callbacks.current = common;
+  });
+  /** The state last reported; null while loading. */
+  const reported = useRef<"ready" | "error" | null>(null);
+
+  useEffect(() => {
+    if (state === "loading") {
+      reported.current = null;
+      return;
+    }
+    if (reported.current === state) return;
+    if (state === "ready") {
+      if (!driver) return;
+      reported.current = state;
+      callbacks.current.onDocumentLoad?.({
+        pageCount: driver.getPageCount(),
+        text: driver.getText(),
+      });
+      return;
+    }
+    reported.current = state;
+    if (error) callbacks.current.onError?.(error);
+  }, [state, error, driver]);
+}
+
+// ---------------------------------------------------------------------------
 // Scroll requests raised by changes
 // ---------------------------------------------------------------------------
 
@@ -378,7 +423,7 @@ type ChangeScroll<T> = {
  * finishes loading counts as a change (the deep-link case); one whose target
  * is not in the data yet waits for it. A change is not scrolled to when it is
  * the host echoing back a user change, when the handle wrote it quietly, or
- * when `enabled` is off; `enabled` does not apply to the deep-link case.
+ * when `enabled` is off.
  */
 function useScrollOnChange<T>(
   store: AnnotatorStore,
@@ -407,9 +452,6 @@ function useScrollOnChange<T>(
     if (!driver) return;
     if (handled.current && Object.is(handled.current.value, value)) return;
     if (targetId !== null && !present) return;
-    // The first value handled since the document became ready is the one
-    // present when it finished loading.
-    const loadCase = handled.current === null;
     handled.current = { value };
 
     const { target: current, equals: same, enabled: allowed } = latest.current;
@@ -422,16 +464,15 @@ function useScrollOnChange<T>(
       quiet.current !== null && same(quiet.current.value, value);
     quiet.current = null;
 
-    if (!current || userEcho || quietWrite || (!allowed && !loadCase)) return;
+    if (!current || userEcho || quietWrite || !allowed) return;
     if (driver.canDraw(current)) void requestScroll(current);
   }, [ready, driver, value, targetId, present, lastUser, quiet, requestScroll]);
 }
 
 /**
- * Scroll to the first selected annotation when the selection changes while
- * `scrollOnSelect` is on, and to the selection present when the document
- * finishes loading whatever `scrollOnSelect` says (spec "Scroll requests",
- * rules 1 and 2).
+ * Scroll to the first selected annotation when the selection changes, and to
+ * the selection present when the document finishes loading (spec "Scroll
+ * requests", rules 1 and 2). `scrollOnSelect={false}` turns both off.
  */
 function useSelectionScroll(
   store: AnnotatorStore,

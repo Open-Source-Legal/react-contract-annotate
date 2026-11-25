@@ -129,6 +129,8 @@ export const ZOOM_STEP = 0.1;
 export const ZOOM_DECIMALS = 6;
 /** Scroll behaviour of a scroll request that does not name one. */
 export const DEFAULT_SCROLL_BEHAVIOR: ScrollBehavior = "smooth";
+/** Message of the error recorded when a format reports failure without one. */
+export const DOCUMENT_ERROR_MESSAGE = "The document could not be loaded.";
 /** How long a bounded scroll request waits before settling `false`. */
 export const SCROLL_SETTLE_TIMEOUT_MS = 5000;
 /** Vertical gap (px) the PDF viewport adds below each page. */

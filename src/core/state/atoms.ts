@@ -91,11 +91,18 @@ export const editingAtom = atom<{
 /** The instance's root element; lookups are scoped to it, never to `document`. */
 export const rootElementAtom = atom<HTMLElement | null>(null);
 
-export const documentStatusAtom = atom<{
+/** Where the format is in loading its document. */
+export type DocumentStatus = {
   state: "loading" | "ready" | "error";
+  /** Loading progress, 0..100, or null when unknown. */
   progress: number | null;
+  /** Set whenever `state` is `"error"`. */
   error: Error | null;
-}>(Object.freeze({ state: "loading", progress: null, error: null }));
+};
+
+export const documentStatusAtom = atom<DocumentStatus>(
+  Object.freeze({ state: "loading", progress: null, error: null })
+);
 
 /** Unique per mounted instance; prefixes any element id that must not collide. */
 export const instanceIdAtom = atom<string>("");
