@@ -13,6 +13,11 @@
  * - `withPawls: false` leaves out the fixture's PAWLs (usc has none).
  * - `props` are passed through last; callbacks in it are called after the
  *   harness has logged the call.
+ *
+ * When `fixture` or `withPawls` changes, the annotator stays mounted and
+ * keeps the previous fixture until the new one's data has been fetched; then
+ * its PDF, PAWLs and annotations are passed together, so a PDF is never
+ * paired with another fixture's data.
  */
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
@@ -54,7 +59,12 @@ const FIXTURES = {
   },
 } as const;
 
-type FixtureData = { pawls: PawlsInput | null; annotations: Annotation[] };
+/** One fixture's data, with the URL of the PDF it belongs to. */
+type FixtureData = {
+  pdf: string;
+  pawls: PawlsInput | null;
+  annotations: Annotation[];
+};
 
 async function fetchJson<T>(url: string | null, fallback: T): Promise<T> {
   if (url === null) return fallback;
@@ -125,7 +135,7 @@ export function PdfHarness({
       fetchJson<PawlsInput | null>(withPawls ? files.pawls : null, null),
       fetchJson<Annotation[]>(files.annotations, []),
     ]).then(([pawls, annotations]) => {
-      if (live) setData({ pawls, annotations });
+      if (live) setData({ pdf: files.pdf, pawls, annotations });
     });
     return () => {
       live = false;
@@ -158,7 +168,7 @@ export function PdfHarness({
     <div data-harness={name} style={SIZE}>
       <PdfAnnotator
         ref={setHandle}
-        source={{ url: files.pdf }}
+        source={{ url: data.pdf }}
         pawls={data.pawls}
         annotations={annotations}
         {...props}

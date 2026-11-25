@@ -231,6 +231,39 @@ test("two viewers: zooming the left one does not resize the right one's canvases
   ]);
 });
 
+test("switching to a document that never loads and back reloads the first one cleanly", async ({
+  mount,
+  page,
+}) => {
+  // Registered after `serveFixtures`, so it wins: the usc PDF never arrives.
+  await page.route("**/fixtures/usc/usc-title-1.pdf", () => {});
+  const loadedPageCounts = async () =>
+    (await harnessEvents(page, "onDocumentLoad")).map(
+      ([, info]) => (info as { pageCount: number }).pageCount
+    );
+  const component = await mount(<PdfHarness />);
+  await waitForDocumentLoad(page);
+  const root = annotatorRoot(page);
+  await expect.poll(() => mountedPages(root)).toContain(0);
+
+  const uscRequested = page.waitForRequest("**/fixtures/usc/usc-title-1.pdf");
+  await component.update(<PdfHarness fixture="usc" withPawls={false} />);
+  await uscRequested;
+  await expect.poll(() => mountedPages(root)).toEqual([]);
+
+  await component.update(<PdfHarness />);
+
+  await expect.poll(loadedPageCounts).toEqual([ETON_PAGE_COUNT, ETON_PAGE_COUNT]);
+  await expect.poll(() => mountedPages(root)).toContain(0);
+  await expect
+    .poll(async () => (await canvasSize(root, 0)).width)
+    .toBeGreaterThan(0);
+  // Let any render of a stale page fail before checking.
+  await page.waitForTimeout(RENDER_SETTLE_MS);
+  expect(await harnessEvents(page, "onError")).toEqual([]);
+  expect(await loadedPageCounts()).toEqual([ETON_PAGE_COUNT, ETON_PAGE_COUNT]);
+});
+
 test("switching documents while pages render reports no error and loads the new one", async ({
   mount,
   page,

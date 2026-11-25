@@ -12,8 +12,10 @@
  * and deep-link scroll, so it is reported only when such a key changes. New
  * `pawls` rebuild the pages' tokens without a reload and without reporting
  * `loading`.
+ *
+ * The pages are React state of the component that calls `usePdfDocument`
+ * (the PDF format), which hands them down through `PdfPagesContext`.
  */
-import { atom, useAtomValue } from "jotai";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import type {
   DocumentInitParameters,
@@ -22,12 +24,18 @@ import type {
   PDFDocumentProxy,
   PDFPageProxy,
 } from "pdfjs-dist/types/src/display/api";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   expandPawlsPages,
   resolvePageTokens,
-  useAnnotatorStore,
   useSetDocumentStatus,
 } from "../core/index";
 import type {
@@ -43,41 +51,13 @@ const NO_PAGES: PDFPageInfo[] = Object.freeze([]) as unknown as PDFPageInfo[];
 
 /**
  * The document's pages in page order, each with its tokens at scale 1; empty
- * until the document has loaded. Read and written through the instance
- * store only.
+ * until the document has loaded. Provided by the PDF format.
  */
-export const pdfPagesAtom = atom<PDFPageInfo[]>(NO_PAGES);
+export const PdfPagesContext = createContext<PDFPageInfo[]>(NO_PAGES);
 
 /** The pages of the annotator's document; empty until it has loaded. */
 export function usePdfPages(): PDFPageInfo[] {
-  const store = useAnnotatorStore("usePdfPages");
-  return useAtomValue(pdfPagesAtom, { store });
-}
-
-/** What identifies one document load. */
-type LoadKey = {
-  url: string | undefined;
-  withCredentials: boolean | undefined;
-  data: Uint8Array | ArrayBuffer | undefined;
-  document: PdfDocumentProxyLike | undefined;
-};
-
-function loadKeyOf(source: PdfSource): LoadKey {
-  return {
-    url: "url" in source ? source.url : undefined,
-    withCredentials: "url" in source ? source.withCredentials : undefined,
-    data: "data" in source ? source.data : undefined,
-    document: "document" in source ? source.document : undefined,
-  };
-}
-
-function sameLoadKey(a: LoadKey, b: LoadKey): boolean {
-  return (
-    a.url === b.url &&
-    a.withCredentials === b.withCredentials &&
-    a.data === b.data &&
-    a.document === b.document
-  );
+  return useContext(PdfPagesContext);
 }
 
 /**
@@ -143,19 +123,25 @@ function buildPages(
   });
 }
 
+/** The page proxies of one finished load; `load` identifies that load. */
+type Loaded = { load: object; pages: PDFPageProxy[] };
+
 /**
  * Loads `source`, reports the loading state through the shell's document
- * status, and fills `pdfPagesAtom`. Cancels (and destroys the loading task
- * of) a load whose key changed or whose component unmounted; never destroys
- * a `PDFDocumentProxy` the host passed in as `{ document }`.
+ * status, and returns the document's pages (empty until loaded). Cancels
+ * (and destroys the loading task of) a load whose key changed or whose
+ * component unmounted; never destroys a `PDFDocumentProxy` the host passed
+ * in as `{ document }`.
  */
 export function usePdfDocument(
   source: PdfSource,
   pawls: PawlsInput | null | undefined
-): void {
-  const store = useAnnotatorStore("usePdfDocument");
+): PDFPageInfo[] {
   const setStatus = useSetDocumentStatus();
-  const key = loadKeyOf(source);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [pages, setPages] = useState<PDFPageInfo[]>(NO_PAGES);
+  /** The load in progress or finished for the current key; null after unmount. */
+  const currentLoad = useRef<object | null>(null);
 
   // Read at load time, so new header objects alone never reload.
   const httpHeaders = "url" in source ? source.httpHeaders : undefined;
@@ -164,17 +150,22 @@ export function usePdfDocument(
     headersRef.current = httpHeaders;
   });
 
-  const [loaded, setLoaded] = useState<{
-    key: LoadKey;
-    pages: PDFPageProxy[];
-  } | null>(null);
+  const url = "url" in source ? source.url : undefined;
+  const withCredentials = "url" in source ? source.withCredentials : undefined;
+  const data = "data" in source ? source.data : undefined;
+  const document = "document" in source ? source.document : undefined;
 
-  const { url, withCredentials, data, document } = key;
   useEffect(() => {
-    const thisLoad: LoadKey = { url, withCredentials, data, document };
+    // Each run is a load of its own. A load finished under an earlier key is
+    // never published, even when the key comes back to the same value: its
+    // loading task has been destroyed.
+    const load = {};
+    currentLoad.current = load;
     let cancelled = false;
-    // The previous document's pages are gone with its loading task.
-    store.set(pdfPagesAtom, NO_PAGES);
+    // The previous document's pages are gone with its loading task; let go
+    // of them and of its page proxies.
+    setLoaded(null);
+    setPages(NO_PAGES);
     setStatus({ state: "loading" });
 
     let task: PDFDocumentLoadingTask | null = null;
@@ -196,9 +187,9 @@ export function usePdfDocument(
 
     documentPromise
       .then((pdf) => (cancelled ? null : fetchPages(pdf)))
-      .then((pages) => {
-        if (cancelled || !pages) return;
-        setLoaded({ key: thisLoad, pages });
+      .then((pdfPages) => {
+        if (cancelled || !pdfPages) return;
+        setLoaded({ load, pages: pdfPages });
       })
       .catch((reason: unknown) => {
         if (cancelled) return;
@@ -207,20 +198,22 @@ export function usePdfDocument(
 
     return () => {
       cancelled = true;
+      if (currentLoad.current === load) currentLoad.current = null;
       // Settles the document promise (rejecting it), which the chain above
       // ignores now that the load is cancelled.
       task?.destroy().catch(() => {});
     };
-  }, [store, setStatus, url, withCredentials, data, document]);
+  }, [setStatus, url, withCredentials, data, document]);
 
-  // The pages of the current key only: right after the key changes, `loaded`
-  // still holds the previous document until the new one arrives.
-  const pages = loaded && sameLoadKey(loaded.key, key) ? loaded.pages : null;
   useEffect(() => {
-    if (!pages) return;
+    // In the commit where the key changes, `loaded` still holds the previous
+    // load; the effect above has already made the new one current.
+    if (!loaded || loaded.load !== currentLoad.current) return;
     // Pages first, so the status change finds them (`onDocumentLoad` reads
-    // the page count and text).
-    store.set(pdfPagesAtom, buildPages(pages, pawls));
+    // the page count and text); both land in the same render.
+    setPages(buildPages(loaded.pages, pawls));
     setStatus({ state: "ready" });
-  }, [store, setStatus, pages, pawls]);
+  }, [setStatus, loaded, pawls]);
+
+  return pages;
 }

@@ -9,7 +9,6 @@
 import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
 
 import {
-  PAGE_SPANNING_TOKEN_THRESHOLD,
   doOverlap,
   normalizeBounds,
   scaled,
@@ -21,6 +20,7 @@ import type {
   SinglePageAnnotationJson,
   TokenId,
 } from "../core/index";
+import { PAGE_SPANNING_TOKEN_THRESHOLD } from "./constants";
 
 export type Optional<T> = T | undefined;
 

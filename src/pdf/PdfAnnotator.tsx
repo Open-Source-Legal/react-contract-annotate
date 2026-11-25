@@ -1,8 +1,9 @@
 /**
  * The PDF annotator: `AnnotatorShell` with the PDF format inside. The format
- * loads the document (`usePdfDocument`), lays its pages out in the
- * virtualised viewport and registers the driver the shell answers the
- * format half of the handle with.
+ * loads the document (`usePdfDocument`), holds its pages and provides them
+ * to its components (`PdfPagesContext`), lays them out in the virtualised
+ * viewport and registers the driver the shell answers the format half of the
+ * handle with.
  */
 import { forwardRef, useLayoutEffect, useRef } from "react";
 import type { ForwardedRef, ReactElement, RefAttributes } from "react";
@@ -10,7 +11,6 @@ import type { ForwardedRef, ReactElement, RefAttributes } from "react";
 import {
   AnnotatorShell,
   computeFitToWidthZoom,
-  useAnnotatorStore,
   useNotifyFitWidthChanged,
   useRegisterFormatDriver,
   useRootElement,
@@ -21,7 +21,7 @@ import type {
   PdfAnnotatorProps,
   ScrollTarget,
 } from "../core/index";
-import { pdfPagesAtom, usePdfDocument, usePdfPages } from "./loader";
+import { PdfPagesContext, usePdfDocument } from "./loader";
 import type { PdfSource } from "./loader";
 import type { PDFPageInfo } from "./PDFPageInfo";
 import { PdfViewport } from "./PdfViewport";
@@ -90,15 +90,17 @@ interface PdfFormatProps {
 }
 
 function PdfFormat({ source, pawls, onVisiblePagesChange }: PdfFormatProps) {
-  usePdfDocument(source, pawls);
-  const store = useAnnotatorStore("PdfAnnotator");
-  const pages = usePdfPages();
+  const pages = usePdfDocument(source, pawls);
   const root = useRootElement();
   const viewport = useRef<PdfViewportControls | null>(null);
 
-  // Read at call time: the shell may ask between a store change and the
-  // render that would hand it a new driver.
-  const currentPages = () => store.get(pdfPagesAtom);
+  // The driver reads the pages at call time, through a ref updated before
+  // any effect of the shell can call it.
+  const pagesRef = useRef(pages);
+  useLayoutEffect(() => {
+    pagesRef.current = pages;
+  });
+  const currentPages = () => pagesRef.current;
   useRegisterFormatDriver({
     kind: "token",
     getPageCount: () => currentPages().length || null,
@@ -134,9 +136,11 @@ function PdfFormat({ source, pawls, onVisiblePagesChange }: PdfFormatProps) {
   }, [root, pages, notifyFitWidthChanged]);
 
   return (
-    <PdfViewport
-      controlsRef={viewport}
-      onVisiblePagesChange={onVisiblePagesChange}
-    />
+    <PdfPagesContext.Provider value={pages}>
+      <PdfViewport
+        controlsRef={viewport}
+        onVisiblePagesChange={onVisiblePagesChange}
+      />
+    </PdfPagesContext.Provider>
   );
 }

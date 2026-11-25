@@ -12,7 +12,7 @@ import type {
   PdfAnnotatorProps,
   PdfDocumentProxyLike,
 } from "../../core/index";
-import { usePdfDocument, usePdfPages } from "../loader";
+import { usePdfDocument } from "../loader";
 import type { PDFPageInfo } from "../PDFPageInfo";
 import {
   FAKE_VIEWPORT,
@@ -55,9 +55,8 @@ function Probe({
   pawls: PawlsInput | null | undefined;
   log: Log;
 }) {
-  usePdfDocument(source, pawls);
+  const pages = usePdfDocument(source, pawls);
   const status = useDocumentStatus();
-  const pages = usePdfPages();
   useEffect(() => {
     log.statuses.push(status);
   }, [log, status]);
@@ -249,6 +248,36 @@ test("a new source after ready clears the pages and reports loading again", asyn
   expect(log.pages).toEqual([]);
   expect(states(log)).toEqual(["loading", "ready", "loading"]);
   expect(fakePdfjs.tasks[0].destroy).toHaveBeenCalledTimes(1);
+});
+
+test("returning to an earlier source loads it again instead of reusing its destroyed pages", async () => {
+  const { log, rerender } = setup({ url: "/a.pdf" });
+  await resolveTask(fakePdfjs.tasks[0], fakeDocument(2));
+  rerender({ url: "/b.pdf" }); // never resolves
+  await settle();
+  rerender({ url: "/a.pdf" });
+  await settle();
+
+  expect(fakePdfjs.tasks[0].destroyed).toBe(true);
+  expect(fakePdfjs.tasks).toHaveLength(3);
+  expect(log.pages).toEqual([]);
+  expect(states(log).at(-1)).toBe("loading");
+
+  await resolveTask(fakePdfjs.tasks[2], fakeDocument(4));
+  expect(log.pages).toHaveLength(4);
+  expect(states(log)).toEqual(["loading", "ready", "loading", "ready"]);
+});
+
+test("returning to an earlier source with new pawls does not publish its destroyed pages", async () => {
+  const { log, rerender } = setup({ url: "/a.pdf" });
+  await resolveTask(fakePdfjs.tasks[0], fakeDocument(2));
+  rerender({ url: "/b.pdf" }, null); // never resolves
+  await settle();
+  rerender({ url: "/a.pdf" }, [...TWO_PAGE_PAWLS]);
+  await settle();
+
+  expect(log.pages).toEqual([]);
+  expect(states(log).at(-1)).toBe("loading");
 });
 
 test("pawls arriving with a new source wait for the new document", async () => {

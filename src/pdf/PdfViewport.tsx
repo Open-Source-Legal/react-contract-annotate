@@ -24,9 +24,6 @@ import {
 import type { MutableRefObject } from "react";
 
 import {
-  PAGE_GAP_PX,
-  PAGE_OVERSCAN,
-  PAGE_RENDER_DEBOUNCE_MS,
   annotationPages,
   draftPages,
   highlightPages,
@@ -39,6 +36,11 @@ import {
   useVisibleAnnotations,
   useZoom,
 } from "../core/index";
+import {
+  PAGE_GAP_PX,
+  PAGE_OVERSCAN,
+  PAGE_RENDER_DEBOUNCE_MS,
+} from "./constants";
 import { usePdfPages } from "./loader";
 import { PdfPage } from "./PdfPage";
 import type { RequestPageRender } from "./PdfPage";

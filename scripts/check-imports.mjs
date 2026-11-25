@@ -11,6 +11,8 @@
 //   4. No document.querySelector / querySelectorAll / getElementById: query
 //      from the instance root element. Files under __tests__/ are exempt from
 //      this rule only.
+//   5. jotai is imported only under src/core: it is private to the library
+//      and never part of a format's (or the public) API.
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -111,6 +113,9 @@ function checkFile(file) {
     }
     if ((inCore || inPdf) && (isPackage(specifier, "docxodus") || isPackage(specifier, "dompurify"))) {
       report(node, `src/${rel[0]} must not import "${specifier}" (docx-only dependency)`);
+    }
+    if (!inCore && isPackage(specifier, "jotai")) {
+      report(node, `"${specifier}" may only be imported under src/core (jotai stays private to core)`);
     }
     if ((inCore || inDocx) && isPackage(specifier, "pdfjs-dist")) {
       report(node, `src/${rel[0]} must not import "${specifier}" (pdf-only dependency)`);

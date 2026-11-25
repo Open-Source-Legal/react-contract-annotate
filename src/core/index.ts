@@ -52,14 +52,6 @@ export type {
 } from "./normalize";
 export { highlightPages } from "./highlights";
 
-/**
- * The instance store, for a format that keeps per-instance atoms of its own
- * (read and write them with `{ store }`). The library's own atoms stay
- * private; reach its state through the hooks above.
- */
-export { useAnnotatorStore } from "./state/AnnotatorProvider";
-export type { AnnotatorStore } from "./state/AnnotatorProvider";
-
 export {
   doOverlap,
   normalizeBounds,
@@ -70,11 +62,3 @@ export {
 export { computeFitToWidthZoom } from "./geometry/pdfZoom";
 export { expandAnnotationJson } from "./geometry/compactAnnotationJson";
 export { expandPawlsPages } from "./geometry/compactPawls";
-
-// Layout constants of the paginated (PDF) format.
-export {
-  PAGE_GAP_PX,
-  PAGE_OVERSCAN,
-  PAGE_RENDER_DEBOUNCE_MS,
-  PAGE_SPANNING_TOKEN_THRESHOLD,
-} from "./constants";
