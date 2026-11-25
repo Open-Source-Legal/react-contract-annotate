@@ -520,9 +520,11 @@ Two limits are accepted. Inside its own viewer the document controls how its
 content looks, and annotation marks are drawn on that content, so a hostile
 document can hide or imitate them there; a host reviewing adversarial
 documents should treat its own annotation list, not the rendering, as the
-record. Resource exhaustion by a hostile document (very large or pathological
-input) is not defended against, beyond a cap on the number of blocks in a
-document stylesheet that stops a known browser parser crash.
+record. A hostile document can also exhaust or crash the page: very large
+input, or CSS nested deeply enough to crash the browser's own parser, which
+happens while the converted HTML is first parsed, before any filter runs.
+That is not defended against. A host that must survive such documents should
+render them in an isolated frame or process.
 
 **Scrolling element.** The component's root is the scroll container and
 fills its parent; the parent must have a height. The existing fallback to
