@@ -25,7 +25,8 @@
  * on render); the colour is the highlight's (default: the text-block blue)
  * instead of one per source; the label is the highlight's own `label`
  * instead of "Search Result n of N"; and the stacking is `--rca-z-highlight`.
- * Colours are hex, as label colours are.
+ * The box is tinted from a hex colour only, as an annotation's is (see
+ * `Highlight.color`).
  */
 import { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";

@@ -4,14 +4,18 @@
  * to its components (`PdfPagesContext`), holds the text-selection gesture
  * shared by its pages (`PdfDragProvider`), lays the pages out in the
  * virtualised viewport and registers the driver the shell answers the format
- * half of the handle with.
+ * half of the handle with. It warns once in development about span
+ * annotations, which a PDF cannot draw (`HighlightOverlay` does so for span
+ * highlights).
  */
-import { forwardRef, useLayoutEffect, useMemo, useRef } from "react";
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { ForwardedRef, ReactElement, RefAttributes } from "react";
 
 import {
   AnnotatorShell,
   computeFitToWidthZoom,
+  useAllAnnotations,
+  useDevWarnOnce,
   useHighlights,
   useNotifyDrawabilityChanged,
   useNotifyFitWidthChanged,
@@ -58,6 +62,23 @@ export const PdfAnnotator = forwardRef(PdfAnnotatorWithRef) as <M = unknown>(
   props: PdfAnnotatorProps<M> & RefAttributes<AnnotatorHandle>
 ) => ReactElement | null;
 
+const SPAN_ANNOTATION_WARNING_KEY = "pdf-span-annotation";
+const SPAN_ANNOTATION_WARNING =
+  "The PDF annotator cannot draw span annotations ({ start, end } JSON, " +
+  "which indexes into the text of a DOCX); they are ignored. Use token " +
+  "annotation JSON for a PDF.";
+
+/** Warns once in development when there are annotations a PDF cannot draw. */
+function useSpanAnnotationWarning(): void {
+  const warnOnce = useDevWarnOnce();
+  const hasSpanAnnotation = useAllAnnotations().some((a) => a.kind === "span");
+  useEffect(() => {
+    if (hasSpanAnnotation) {
+      warnOnce(SPAN_ANNOTATION_WARNING_KEY, SPAN_ANNOTATION_WARNING);
+    }
+  }, [hasSpanAnnotation, warnOnce]);
+}
+
 /** The zoom at which page 1 fills the root's width; null until measurable. */
 function fitWidthZoom(
   pages: readonly PDFPageInfo[],
@@ -86,6 +107,7 @@ function PdfFormat({
   const readData = useReadDocumentData();
   const root = useRootElement();
   const viewport = useRef<PdfViewportControls | null>(null);
+  useSpanAnnotationWarning();
 
   // The text of the document as its tokens spell it: what `getText()` returns
   // and `findText()` searches. Rebuilt with the pages.

@@ -463,3 +463,28 @@ describe("click model", () => {
     expect(onOpenLink).not.toHaveBeenCalled();
   });
 });
+
+describe("label colours on PDF", () => {
+  test.each([
+    ["3-digit hex", "#f00", "rgb(255, 0, 0)", "rgba(255, 0, 0,"],
+    ["8-digit hex", "#ff000080", "rgba(255, 0, 0, 0.5)", "rgba(255, 0, 0,"],
+    // Not hex: the chip and the tokens take it; the box falls back to yellow.
+    ["a colour name", "red", "red", "rgba(255, 255, 0,"],
+    // Not a safe colour: everything is the default grey.
+    ["an unsafe value", "red; } body { x: y", "rgb(97, 106, 107)", "rgba(97, 106, 107,"],
+  ])("%s: the tokens take the chip's colour, the box its hex", (_kind, color, tokenColor, fill) => {
+    const annotation = tokenAnnotation("a1", {
+      annotationLabel: { id: "l-c", text: "Coloured", color },
+    });
+    const { container } = renderBoxes({
+      annotations: [annotation],
+      labelDisplay: "always",
+    });
+    const tokens = tokenRects(container, "a1");
+    expect(tokens).toHaveLength(2);
+    for (const token of tokens) {
+      expect(token.style.backgroundColor).toBe(tokenColor);
+    }
+    expect(box(container, "a1")!.style.backgroundColor).toContain(fill);
+  });
+});

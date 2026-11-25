@@ -21,9 +21,10 @@
  * Changed from OpenContracts: the chip of `labelDisplay: "hover"` also shows
  * while the annotation is selected; the relation badge shows on the
  * endpoints of the first selected relation whether or not they are selected
- * (relation selection no longer selects its endpoints); and the box is never
+ * (relation selection no longer selects its endpoints); the box is never
  * hidden in place, because visibility is decided by `useVisibleAnnotations`
- * alone.
+ * alone; and the token highlights are in the chip's colour (`labelColor`),
+ * where OpenContracts passed the label's colour on as it was.
  *
  * Theming (custom properties, defaulting to OpenContracts' values):
  * `--rca-label-font-weight` / `--rca-label-font-size` for the label bar,
@@ -314,7 +315,7 @@ export function AnnotationBox({ annotation, pageInfo }: AnnotationBoxProps) {
         pageJson.tokensJsons && (
           <TokenGroup
             ownerId={annotation.id}
-            color={annotation.annotationLabel.color}
+            color={color}
             highOpacity={!showBoundingBoxes}
             pageInfo={pageInfo}
             tokens={pageJson.tokensJsons}

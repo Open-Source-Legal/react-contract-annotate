@@ -29,8 +29,9 @@
  * click on the blank page (pressed and released on the page itself: this
  * layer or its canvas, not on a box, a label chip or host content in it, or
  * a link) clears the annotation selection and the pending selection, as
- * above; a click on an annotation or highlight box clears nothing and is left
- * to the box. A tap on the blank page is such a click. On a page without
+ * above, unless Shift, Ctrl or Cmd is held (a toggle that missed its box); a
+ * click on an annotation or highlight box clears nothing and is left to the
+ * box. A tap on the blank page is such a click. On a page without
  * tokens (no PAWLs, where bounds-only annotations still render) a press is
  * recorded so its click is seen, but it never becomes a drag: a drag there
  * selects and clears nothing.
@@ -42,6 +43,12 @@
  * take no pointer events, and are drawn before the page's other layers, so
  * at the same stacking (`--rca-z-pending`, default 2, as the annotation
  * boxes) the boxes stay on top.
+ *
+ * Touch: while a long press selects, a move extends the selection and does
+ * not scroll: the root stops scrolling, and the layer's own non-passive
+ * `touchmove` listener (React's is passive, so it cannot) prevents the
+ * page's. A cancelled touch (`touchcancel`) ends the long press without a
+ * selection and gives the root its scrolling back.
  *
  * Removed from OpenContracts: the action menu and its portal, its keyboard
  * shortcuts and cooldown, "copy link", the URL modal, corpus and permission
@@ -113,6 +120,17 @@ type Press = { client: Point; page: Point; blank: boolean; moved: boolean };
 
 /** Where a touch began, and whether on the blank page. */
 type TouchStart = Point & { blank: boolean };
+
+/** What finishing a gesture needs of the event that released it. */
+type Release = Pick<
+  MouseEvent,
+  "clientX" | "clientY" | "shiftKey" | "ctrlKey" | "metaKey" | "target"
+>;
+
+/** Whether a release held Shift, Ctrl or Cmd. */
+function isModified({ shiftKey, ctrlKey, metaKey }: Release): boolean {
+  return shiftKey || ctrlKey || metaKey;
+}
 
 /**
  * The draft of the regions: for each page with at least one token captured,
@@ -191,6 +209,12 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
   );
   const touchStartRef = useRef<TouchStart | null>(null);
   const [isLongPressActive, setIsLongPressActive] = useState(false);
+  /** `isLongPressActive` for the native `touchmove` listener. */
+  const longPressRef = useRef(false);
+  const setLongPress = useCallback((active: boolean) => {
+    longPressRef.current = active;
+    setIsLongPressActive(active);
+  }, []);
 
   /** A viewport point on this page, unscaled. Null once unmounted. */
   const toPage = useCallback(
@@ -293,26 +317,23 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
   );
 
   /**
-   * Finalises the gesture at a viewport point, whichever handler heard the
-   * release (on `target`): with Shift the region is kept, otherwise the draft
-   * of every kept region completes. A press that never became a drag selects
-   * no text; pressed and released on the blank page, it clears the
-   * selections.
+   * Finalises the gesture at the release's viewport point, whichever handler
+   * heard it: with Shift the region is kept, otherwise the draft of every
+   * kept region completes. A press that never became a drag selects no
+   * text; pressed and released on the blank page without a modifier, it
+   * clears the selections.
    */
   const finish = useCallback(
-    (
-      clientX: number,
-      clientY: number,
-      shiftKey: boolean,
-      target: EventTarget | null
-    ) => {
+    (release: Release) => {
+      const { clientX, clientY, shiftKey, target } = release;
       const press = pressRef.current;
       if (!press) return;
       disarm();
       const current = controls.get();
       const { active } = current;
       if (!active) {
-        if (!press.moved && press.blank && isBlank(target)) clearSelections();
+        const blankClick = !press.moved && press.blank && isBlank(target);
+        if (blankClick && !isModified(release)) clearSelections();
         return;
       }
       if (active.pageIndex !== pageIndex) return;
@@ -349,9 +370,9 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
   const cancel = useCallback(() => {
     disarm();
     clearLongPressTimer();
-    setIsLongPressActive(false);
+    setLongPress(false);
     controls.set(NO_DRAG);
-  }, [disarm, clearLongPressTimer, controls]);
+  }, [disarm, clearLongPressTimer, setLongPress, controls]);
 
   /**
    * Handles the mouse down event to start the selection.
@@ -375,7 +396,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
    * Handles the mouse up event to finalize the selection.
    */
   const handleMouseUp = (event: ReactMouseEvent<HTMLDivElement>) => {
-    finish(event.clientX, event.clientY, event.shiftKey, event.target);
+    finish(event);
   };
 
   /**
@@ -405,7 +426,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
         blank: start.blank,
         moved: false,
       };
-      setIsLongPressActive(true);
+      setLongPress(true);
       begin(page, page);
     }, LONG_PRESS_MS);
   };
@@ -431,10 +452,9 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
       }
     }
 
-    // If long press is active, the move extends the selection
+    // If long press is active, the move extends the selection (and the
+    // layer's native listener keeps it from scrolling the page)
     if (isLongPressActive) {
-      // Prevent default touch behavior (scrolling/panning) during selection
-      event.preventDefault();
       event.stopPropagation();
       moveTo(touch.clientX, touch.clientY);
     }
@@ -453,10 +473,37 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
       if (tapStart?.blank) clearSelections();
       return;
     }
-    setIsLongPressActive(false);
+    setLongPress(false);
     const touch = event.changedTouches[0];
-    if (touch) finish(touch.clientX, touch.clientY, false, null);
-    else disarm();
+    if (touch) {
+      finish({
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        target: null,
+      });
+    } else {
+      disarm();
+    }
+  };
+
+  /**
+   * Handles touch cancel (the browser took the touch over): the long press,
+   * or the hold that would have started one, ends without a selection; the
+   * regions kept with Shift stay
+   */
+  const handleTouchCancel = () => {
+    clearLongPressTimer();
+    touchStartRef.current = null;
+    if (!isLongPressActive) return;
+    setLongPress(false);
+    disarm();
+    const current = controls.get();
+    if (current.active?.pageIndex === pageIndex) {
+      controls.set({ ...current, active: null });
+    }
   };
 
   // Document-level mouseup / mousemove (and Escape) while a press is in
@@ -466,7 +513,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
     if (!armed) return;
 
     const handleDocMouseUp = (event: MouseEvent) => {
-      finish(event.clientX, event.clientY, event.shiftKey, event.target);
+      finish(event);
     };
     const handleDocMouseMove = (event: MouseEvent) => {
       moveTo(event.clientX, event.clientY);
@@ -487,6 +534,20 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
 
   // Cleanup long press timer on unmount
   useEffect(() => clearLongPressTimer, [clearLongPressTimer]);
+
+  // React listens to touchmove passively, so its handler cannot keep a
+  // selecting move from scrolling the page. This listener can: it is not
+  // passive, and it is there from the touch's start (a browser decides then
+  // whether a touch's moves can be cancelled).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const preventScroll = (event: TouchEvent) => {
+      if (longPressRef.current && event.cancelable) event.preventDefault();
+    };
+    container.addEventListener("touchmove", preventScroll, { passive: false });
+    return () => container.removeEventListener("touchmove", preventScroll);
+  }, []);
 
   // Disable scrolling on the scroll container while a long press selects
   useEffect(() => {
@@ -527,6 +588,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
       style={{ touchAction: isLongPressActive ? "none" : "auto" }}
     >
       {dragRegions.map((bounds, index) => (

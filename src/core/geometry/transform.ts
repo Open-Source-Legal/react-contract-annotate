@@ -1,28 +1,29 @@
 import { PAWLS_COORDINATE_EPSILON } from "../constants";
 import type { BoundingBox, PawlsPage, PawlsToken } from "../types";
 
-export function hexToRgb(hex: string) {
-  // For shortsighted reasons, the color stored is missing #. Check first to see if number is missing hex, if so
-  // add it and THEN run the
-  try {
-    let color_str = hex.substring(0, 1) !== "#" ? "#" + hex : hex;
+/** `#rgb`, `#rrggbb` or `#rrggbbaa` (the `#` optional), any case. */
+const HEX_COLOR = /^#?(?:[a-f\d]{3}|[a-f\d]{6}|[a-f\d]{8})$/i;
 
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color_str);
-    if (!result) {
-      throw new Error("Unable to parse color.");
-    }
-    return {
-      r: parseInt(result[1], 16),
-      g: parseInt(result[2], 16),
-      b: parseInt(result[3], 16),
-    };
-  } catch {
-    return {
-      r: 255,
-      g: 255,
-      b: 0,
-    };
-  }
+/** The colour of a hex colour that is not one: OpenContracts' yellow. */
+const FALLBACK_RGB = Object.freeze({ r: 255, g: 255, b: 0 });
+
+/**
+ * The red, green and blue of a hex colour: `#rgb`, `#rrggbb` or `#rrggbbaa`,
+ * with or without the `#` (OpenContracts stores some colours without it);
+ * an alpha is ignored. Anything else is yellow, as in OpenContracts.
+ */
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  if (!HEX_COLOR.test(hex)) return { ...FALLBACK_RGB };
+  const digits = hex.startsWith("#") ? hex.slice(1) : hex;
+  const full =
+    digits.length === 3
+      ? Array.from(digits, (digit) => digit + digit).join("")
+      : digits;
+  return {
+    r: parseInt(full.slice(0, 2), 16),
+    g: parseInt(full.slice(2, 4), 16),
+    b: parseInt(full.slice(4, 6), 16),
+  };
 }
 
 // Function to determine contrasting text color

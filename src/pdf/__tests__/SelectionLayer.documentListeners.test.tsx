@@ -440,6 +440,64 @@ describe("touch", () => {
     expect(onSelectionChange).not.toHaveBeenCalled();
   });
 
+  test("a cancelled long press selects nothing and gives the root its scrolling back", () => {
+    const onTextSelect = vi.fn();
+    const { layer, container } = renderLayers({ onTextSelect });
+    const root = container.querySelector<HTMLElement>("[data-rca-root]")!;
+    const overflow = root.style.overflow;
+
+    fireEvent.touchStart(layer(), { touches: touchAt(IN_HELLO) });
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    expect(root.style.overflow).toBe("hidden");
+    expect(layer().querySelectorAll("[data-rca-drag-region]")).toHaveLength(1);
+
+    fireEvent.touchCancel(layer(), { changedTouches: touchAt(IN_HELLO) });
+
+    expect(root.style.overflow).toBe(overflow);
+    expect(layer().style.touchAction).toBe("auto");
+    expect(layer().querySelectorAll("[data-rca-drag-region]")).toHaveLength(0);
+    // What follows is a new gesture: a release completes nothing.
+    fireEvent.touchEnd(layer(), { changedTouches: touchAt(IN_HELLO) });
+    expect(onTextSelect).not.toHaveBeenCalled();
+  });
+
+  test("a cancelled touch before the hold is over starts nothing later", () => {
+    const onSelectionChange = vi.fn();
+    const { layer } = renderLayers({
+      onSelectionChange,
+      defaultSelectedAnnotationIds: ["a1"],
+    });
+    fireEvent.touchStart(layer(), { touches: touchAt(IN_HELLO) });
+    fireEvent.touchCancel(layer(), { changedTouches: touchAt(IN_HELLO) });
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    expect(onSelectionChange).not.toHaveBeenCalled();
+  });
+
+  test("while a long press selects, a touch move does not scroll the page; before it, it does", () => {
+    const { layer } = renderLayers();
+    fireEvent.touchStart(layer(), { touches: touchAt(IN_HELLO) });
+    // `fireEvent` returns false once the default action is prevented.
+    expect(
+      fireEvent.touchMove(layer(), { touches: touchAt(IN_HELLO) })
+    ).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+
+    expect(
+      fireEvent.touchMove(layer(), { touches: touchAt(IN_WORLD) })
+    ).toBe(false);
+    // The move extended the selection.
+    fireEvent.touchEnd(layer(), { changedTouches: touchAt(IN_WORLD) });
+    expect(
+      fireEvent.touchMove(layer(), { touches: touchAt(IN_WORLD) })
+    ).toBe(true);
+  });
+
   test("a touch that moves before the hold is over is not a selection", () => {
     const onTextSelect = vi.fn();
     const { layer } = renderLayers({ onTextSelect });
@@ -535,6 +593,29 @@ describe("clicks", () => {
     // A click selects no text.
     expect(onTextSelect).toHaveBeenCalledTimes(1);
   });
+
+  test.each(["shiftKey", "ctrlKey", "metaKey"])(
+    "a click on the blank page with %s, which missed the box it meant to toggle, clears nothing",
+    (modifier) => {
+      const onSelectionChange = vi.fn();
+      const { layer } = renderLayers({
+        selectedAnnotationIds: ["a1"],
+        onSelectionChange,
+      });
+      drag(layer(), ...OVER_AGAIN);
+      expect(layer().querySelectorAll(PENDING_REGION)).toHaveLength(1);
+      onSelectionChange.mockClear();
+      const canvas = canvasOf(layer());
+      const at = { clientX: BLANK.x, clientY: BLANK.y, [modifier]: true };
+
+      fireEvent.mouseDown(canvas, { ...at, buttons: 1 });
+      fireEvent.mouseUp(canvas, at);
+      fireEvent.click(canvas, at);
+
+      expect(onSelectionChange).not.toHaveBeenCalled();
+      expect(layer().querySelectorAll(PENDING_REGION)).toHaveLength(1);
+    }
+  );
 
   test("a click on the layer itself, beside the canvas, is a blank click too", () => {
     const onSelectionChange = vi.fn();

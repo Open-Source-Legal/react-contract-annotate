@@ -189,6 +189,12 @@ All inputs are plain JSON; no class instances cross the boundary. Exact types:
   `{ kind: "span", start, end }` (DOCX). An optional `label` is drawn as a chip
   on the box, subject to `labelDisplay` (PDF only).
 
+**Colours** (`AnnotationLabel.color`, `Highlight.color`) are a hex colour
+(`#rgb`, `#rrggbb`, `#rrggbbaa`), a colour name, or `rgb()` / `hsl()` with
+numbers only; anything else falls back to the default. On a PDF the box is
+tinted from hex only (a name or a function colours the chip and the tokens, and
+the box falls back to yellow, as in OpenContracts); a DOCX takes any of them.
+
 **Annotations, relations and highlights are immutable inputs.** Change one by
 passing a new object (or a new array), never by mutating one in place:
 normalisation is memoised by object identity.

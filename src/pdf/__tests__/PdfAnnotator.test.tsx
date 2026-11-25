@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { createRef, useEffect, useRef } from "react";
 
 import type {
+  Annotation,
   AnnotatorHandle,
   Highlight,
   PdfDocumentProxyLike,
@@ -65,6 +66,41 @@ test("a load failure calls onError once and renders the error slot", async () =>
   expect(fakePdfjs.getDocument).toHaveBeenCalledTimes(1);
   expect(handleRef.current?.getPageCount()).toBeNull();
   expect(handleRef.current?.getVisiblePageRange()).toBeNull();
+});
+
+test("span annotations, which a PDF cannot draw, are warned about once in development", () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const span = (id: string): Annotation => ({
+    id,
+    annotationLabel: { id: "l1", text: "Clause" },
+    json: { start: 0, end: 4 },
+  });
+  const element = (annotations: Annotation[]) => (
+    <PdfAnnotator source={{ url: "/a.pdf" }} annotations={annotations} />
+  );
+  const view = render(element([span("s-1")]));
+  view.rerender(element([span("s-1"), span("s-2")]));
+
+  const messages = warn.mock.calls.map(([message]) => String(message));
+  expect(messages).toHaveLength(1);
+  expect(messages[0]).toContain("span annotations");
+});
+
+test("token annotations are not warned about", () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  render(
+    <PdfAnnotator
+      source={{ url: "/a.pdf" }}
+      annotations={[
+        {
+          id: "t-1",
+          annotationLabel: { id: "l1", text: "Clause" },
+          json: { v: 2, p: { "0": { b: [0, 0, 1, 1], t: "0" } } },
+        },
+      ]}
+    />
+  );
+  expect(warn).not.toHaveBeenCalled();
 });
 
 /** A fake document whose pages render (to nothing) on a canvas. */

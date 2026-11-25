@@ -132,7 +132,14 @@ export type PawlsInput = PawlsPage[] | CompactPawls;
 export interface AnnotationLabel {
   id: string;
   text: string;
-  /** Default grey, as in OpenContracts. */
+  /**
+   * Default grey, as in OpenContracts. A hex colour (`#rgb`, `#rrggbb`,
+   * `#rrggbbaa`), a colour name or an `rgb()` / `hsl()` with numbers only;
+   * anything else is replaced by the default grey. On a PDF the box and its
+   * halo are tinted from hex only (an alpha is ignored): with a name or a
+   * function the chip and the token highlights take the colour and the box
+   * is OpenContracts' fallback yellow. A DOCX takes any of them.
+   */
   color?: string;
   description?: string;
   icon?: string;
@@ -179,6 +186,11 @@ export interface Relation {
  */
 export interface Highlight {
   id: string;
+  /**
+   * Default OpenContracts' text-block blue. Accepted and tinted as
+   * `AnnotationLabel.color` is: on a PDF the box from hex only, the chip and
+   * the token highlights from any accepted colour.
+   */
   color?: string;
   label?: string;
   target:
