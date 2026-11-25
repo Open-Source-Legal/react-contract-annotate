@@ -1,9 +1,25 @@
 {
   "name": "@os-legal/react-contract-annotate",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "description": "Control-free React viewer/annotator for OpenContracts annotations on PDF and DOCX",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Open-Source-Legal/react-contract-annotate.git"
+  },
+  "homepage": "https://open-source-legal.github.io/react-contract-annotate/",
+  "bugs": "https://github.com/Open-Source-Legal/react-contract-annotate/issues",
+  "keywords": [
+    "react",
+    "pdf",
+    "docx",
+    "annotation",
+    "contracts",
+    "opencontracts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "packageManager": "yarn@4.13.0",
   "sideEffects": false,

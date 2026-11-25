@@ -1,0 +1,72 @@
+name: Publish to npm
+
+# Publishes the version in package.json when a GitHub release is published.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  # For npm provenance, and for npm trusted publishing (no token).
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      # Optional. Without it the publish uses npm trusted publishing, which
+      # must be set up for this workflow in the package's settings on npm.
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Use trusted publishing when no token is configured
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
+
+      - name: Check the release tag is the package version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::Release tag $TAG does not match package.json version $VERSION"
+            exit 1
+          fi
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install
+        run: yarn install --immutable
+
+      - name: Lint imports
+        run: yarn lint:imports
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Unit tests
+        run: yarn test
+
+      - name: Build
+        run: yarn build
+
+      - name: Check dist
+        run: yarn check:dist
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@os-legal/react-contract-annotate@$VERSION" version 2>/dev/null; then
+            echo "v$VERSION is already published, skipping"
+          else
+            npm publish --access public --provenance
+          fi
