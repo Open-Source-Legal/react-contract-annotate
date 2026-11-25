@@ -107,6 +107,11 @@ const FIXTURES = {
     text: "/fixtures/docx/hyperlink.txt",
     annotations: null,
   },
+  features: {
+    docx: "/fixtures/docx/features.docx",
+    text: "/fixtures/docx/features.txt",
+    annotations: null,
+  },
 } as const;
 
 const NO_ANNOTATIONS: Annotation[] = [];

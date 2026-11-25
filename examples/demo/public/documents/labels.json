@@ -1,0 +1,47 @@
+{
+  "Parties": {
+    "text": "Parties",
+    "color": "#2563EB",
+    "description": "Who the agreement binds"
+  },
+  "Defined Term": {
+    "text": "Defined Term",
+    "color": "#0F9D8A",
+    "description": "A term the agreement defines"
+  },
+  "Grant of Rights": {
+    "text": "Grant of Rights",
+    "color": "#7C3AED",
+    "description": "What the license allows"
+  },
+  "Payment": {
+    "text": "Payment",
+    "color": "#D97706",
+    "description": "Royalties and reimbursement"
+  },
+  "Term and Termination": {
+    "text": "Term and Termination",
+    "color": "#DC2626",
+    "description": "How long the agreement lasts and how it ends"
+  },
+  "Warranty and Indemnity": {
+    "text": "Warranty and Indemnity",
+    "color": "#C026D3",
+    "description": "Disclaimers and who bears liability"
+  },
+  "Governing Law": {
+    "text": "Governing Law",
+    "color": "#4D7C0F",
+    "description": "The law the agreement is read under"
+  },
+  "Statutory Reference": {
+    "text": "Statutory Reference",
+    "color": "#8D6E63",
+    "description": "A statute or regulation the agreement cites"
+  },
+  "Section Heading": { "text": "Section Heading", "color": "#64748B" },
+  "PARAGRAPH": { "text": "Paragraph", "color": "#94A3B8" },
+  "TABLE": { "text": "Table", "color": "#94A3B8" },
+  "Uses defined term": { "text": "Uses defined term", "color": "#0F9D8A" },
+  "Subject to": { "text": "Subject to", "color": "#DC2626" }
+}

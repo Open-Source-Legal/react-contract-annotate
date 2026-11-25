@@ -127,8 +127,10 @@ import type { DocxScope } from "./isolation";
 import type { DocxDocument } from "./loader";
 import { sanitizeProjectedHtml } from "./loader";
 import {
+  anchoredInHtml,
   buildProjection,
   entryKind,
+  projectionSource,
   suppressedTargets,
   withoutIndentation,
 } from "./projection";
@@ -343,6 +345,12 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
     latestPlan.current = projectionPlan;
   });
 
+  // What docxodus is given of the document, made once per document.
+  const source = useMemo(
+    () => (docx === null ? null : projectionSource(docx.html)),
+    [docx]
+  );
+
   /** Whether the primary button is down after a press in the document. */
   const [pressed, setPressed] = useState(false);
   const [projection, setProjection] = useState<Projection | null>(null);
@@ -352,7 +360,7 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   });
 
   useEffect(() => {
-    if (docx === null || pressed) return;
+    if (docx === null || source === null || pressed) return;
     // What is shown is already this projection: the release of a press,
     // which runs this again, projects nothing new.
     const current = projectionRef.current;
@@ -376,7 +384,11 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
       show(docx.html);
       return;
     }
-    projectAnnotationsOntoHtml(docx.html, plan.set, PROJECTION_SETTINGS)
+    projectAnnotationsOntoHtml(
+      source.markup,
+      anchoredInHtml(plan.set, source.text),
+      PROJECTION_SETTINGS
+    )
       .then((html) => {
         if (!cancelled) show(sanitizeProjectedHtml(withoutIndentation(html)));
       })
@@ -388,7 +400,7 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [docx, text, projectionKey, pressed]);
+  }, [docx, source, text, projectionKey, pressed]);
 
   // A projection of an earlier document is never shown.
   const shown = projection?.docx === docx ? projection : null;

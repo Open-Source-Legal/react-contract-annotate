@@ -1,63 +1,110 @@
 /**
- * The two documents of the demo, fetched from `/fixtures/**` (served by the
- * Vite config from the repository's `fixtures/` directory): an agreement as a
- * PDF with its PAWLS tokens, and a short DOCX with its plain text. Each comes
- * with the OpenContracts annotations (and relations) that go with it.
+ * The demo's documents (`public/documents/**`): two model agreements of the
+ * U.S. National Institutes of Health, one as a PDF and one as a DOCX, each with
+ * an OpenContracts document export (tokens or text, annotations and
+ * relationships) written by `scripts/make-exports.mjs`, and the labels of the
+ * corpus they belong to. `fromOpenContractsExport` turns an export into the
+ * viewer's inputs.
  */
+import { fromOpenContractsExport } from "@os-legal/react-contract-annotate";
 import type {
   Annotation,
+  AnnotationLabel,
   DocumentInput,
+  OpenContractDocExport,
+  OpenContractLabelLookup,
   Relation,
 } from "@os-legal/react-contract-annotate";
 
 export type Format = DocumentInput["format"];
 
+/** One document of the demo, before it is loaded. */
+export interface DemoSource {
+  id: string;
+  /** The name on the document switch. */
+  name: string;
+  format: Format;
+  /** Paths under `documents/`. */
+  file: string;
+  export: string;
+  /** Where the file was published. */
+  publishedAt: string;
+}
+
+export const DEMO_SOURCES: readonly DemoSource[] = [
+  {
+    id: "patent-license",
+    name: "Patent license (PDF)",
+    format: "pdf",
+    file: "patent-license/nih-patent-license-nonexclusive.pdf",
+    export: "patent-license/export.json",
+    publishedAt:
+      "https://www.techtransfer.nih.gov/sites/default/files/files/Model%20Agreements/NIH_Patent_License_Nonexclusive_model_102015_rev092024.pdf",
+  },
+  {
+    id: "evaluation-license",
+    name: "Evaluation license (DOCX)",
+    format: "docx",
+    file: "evaluation-license/nih-commercial-evaluation-license.docx",
+    export: "evaluation-license/export.json",
+    publishedAt:
+      "https://www.techtransfer.nih.gov/sites/default/files/files/Model%20Agreements/NIH_Commercial_Evaluation_License_model_102015_rev092024.docx",
+  },
+];
+
 export interface DemoDocument {
+  source: DemoSource;
+  title: string;
   document: DocumentInput;
   annotations: Annotation[];
   relations: Relation[];
+  /** The labels a reader can apply: those of the document's own annotations. */
+  labels: AnnotationLabel[];
 }
 
-const BASE = import.meta.env.BASE_URL;
+const DOCUMENTS_URL = `${import.meta.env.BASE_URL}documents/`;
 
 /** Where the viewer finds docxodus' WebAssembly runtime (see vite.config.ts). */
-const WASM_BASE_URL = `${BASE}docxodus-wasm/`;
+const WASM_BASE_URL = `${import.meta.env.BASE_URL}docxodus-wasm/`;
 
-async function fetchOk(path: string): Promise<Response> {
-  const response = await fetch(`${BASE}fixtures/${path}`);
+async function fetchJson<T>(path: string): Promise<T> {
+  const response = await fetch(DOCUMENTS_URL + path);
   if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
-  return response;
+  return (await response.json()) as T;
 }
 
-export async function loadDemoDocument(format: Format): Promise<DemoDocument> {
-  if (format === "pdf") {
-    const [pawls, annotations, relations] = await Promise.all([
-      fetchOk("eton/pawls.json").then((r) => r.json()),
-      fetchOk("eton/annotations.json").then((r) => r.json()),
-      fetchOk("eton/relations.json").then((r) => r.json()),
-    ]);
-    return {
-      document: {
-        format,
-        source: { url: `${BASE}fixtures/eton/eton-agreement.pdf` },
-        pawls,
-      },
-      annotations,
-      relations,
-    };
+/** Each label of the annotations a reader made, once, in order of first use. */
+function appliedLabels(annotations: Annotation[]): AnnotationLabel[] {
+  const byId = new Map<string, AnnotationLabel>();
+  for (const { annotationLabel, structural } of annotations) {
+    if (!structural && !byId.has(annotationLabel.id)) {
+      byId.set(annotationLabel.id, annotationLabel);
+    }
   }
-  const [text, annotations] = await Promise.all([
-    fetchOk("docx/text.txt").then((r) => r.text()),
-    fetchOk("docx/annotations.json").then((r) => r.json()),
+  return [...byId.values()];
+}
+
+export async function loadDemoDocument(
+  source: DemoSource
+): Promise<DemoDocument> {
+  const [exported, labels] = await Promise.all([
+    fetchJson<OpenContractDocExport>(source.export),
+    fetchJson<OpenContractLabelLookup>("labels.json"),
   ]);
+  const { annotations, relations, pawls, text } = fromOpenContractsExport(
+    exported,
+    labels
+  );
+  const file = { url: DOCUMENTS_URL + source.file };
   return {
-    document: {
-      format,
-      source: { url: `${BASE}fixtures/docx/test.docx` },
-      text,
-      wasmBaseUrl: WASM_BASE_URL,
-    },
+    source,
+    title: exported.title,
+    document:
+      source.format === "pdf"
+        ? { format: "pdf", source: file, pawls }
+        : { format: "docx", source: file, text, wasmBaseUrl: WASM_BASE_URL },
     annotations,
-    relations: [],
+    relations,
+    labels: appliedLabels(annotations),
   };
 }

@@ -1,61 +1,430 @@
+/*
+ * The demo's chrome is one ink on a grey desk: the only colours on the page
+ * are the annotation labels'.
+ */
+:root {
+  --desk: #e4e7ec;
+  --paper: #ffffff;
+  --ink: #17202c;
+  --muted: #586273;
+  --rule: #c9cfd8;
+  --tint: #eef1f5;
+  --focus: #1f5fd1;
+  /* The face of U.S. court opinions, where a reader's machine has one. */
+  --legal: "Century Schoolbook", "New Century Schoolbook",
+    "Century Schoolbook L", C059, "TeX Gyre Schola", Georgia, serif;
+  --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font: 14px/1.4 system-ui, sans-serif;
-  color: #1f2933;
-  background: #f4f5f7;
+  font: 14px/1.45 var(--ui);
+  color: var(--ink);
+  background: var(--desk);
 }
+
+h1,
+h2,
+p,
+ul,
+ol {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 0.2em;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ page */
 
 .demo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100dvh;
+  min-height: 560px;
+}
+
+.masthead {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 16px;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px 32px;
+  padding: 14px 20px 12px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
 }
 
-.demo h1 {
-  margin: 0;
-  font-size: 18px;
+.masthead .title {
+  flex: 1 1 26rem;
+  max-width: 44rem;
 }
 
-.demo .row {
+.masthead h1 {
+  font: 700 1.55rem/1.15 var(--legal);
+  letter-spacing: -0.01em;
+}
+
+.masthead .title p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+}
+
+.switch-with-name {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  color: var(--muted);
 }
 
-.demo .row > .group {
+/* Two or three choices of which exactly one is on. */
+.switch {
+  display: inline-flex;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.switch button {
+  padding: 5px 12px;
+  white-space: nowrap;
+  border: 0;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.switch button + button {
+  border-left: 1px solid var(--ink);
+}
+
+.switch button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.switch button:focus-visible {
+  outline-offset: -4px;
+}
+
+.status {
+  padding: 24px 20px;
+  color: var(--muted);
+}
+
+.colophon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 32px;
+  padding: 8px 20px;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--paper);
+  border-top: 1px solid var(--rule);
+}
+
+.colophon p:last-child {
+  flex: 1 1 30rem;
+}
+
+/* ------------------------------------------------------------- workspace */
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.sidebar {
+  overflow-y: auto;
+  padding: 14px 0 20px;
+  background: var(--paper);
+  border-right: 1px solid var(--rule);
+}
+
+.sidebar h2,
+.log h2 {
+  font: 700 0.95rem/1.2 var(--legal);
+}
+
+.sidebar h2 {
+  padding: 0 16px 8px;
+}
+
+.sidebar h2:not(:first-child) {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.label-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.label-head input {
+  margin: 0;
+  accent-color: var(--label, var(--muted));
+}
+
+.label-name {
+  flex: 1;
+}
+
+.count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.label-head.structure {
+  margin-top: 8px;
+}
+
+/* A row is a tab stuck in the margin: its edge is the label's colour. */
+.note {
+  display: block;
+  width: 100%;
+  padding: 5px 16px 5px 13px;
+  border: 0;
+  border-left: 3px solid var(--label, var(--rule));
+  background: none;
+  text-align: left;
+  line-height: 1.35;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.note:hover,
+.note[aria-current="true"] {
+  background: var(--tint);
+  color: var(--ink);
+}
+
+.note[aria-current="true"] {
+  border-left-width: 6px;
+  padding-left: 10px;
+}
+
+.note:focus-visible {
+  outline-offset: -2px;
+}
+
+.note strong {
+  display: block;
+  color: var(--ink);
+}
+
+/* ----------------------------------------------------------------- stage */
+
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cluster {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding-right: 12px;
 }
 
-.demo button[aria-pressed="true"] {
-  background: #1f2933;
-  color: #fff;
+.toolbar button,
+.toolbar input,
+.toolbar select {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
 }
 
-.demo .hint {
-  margin: 0;
-  color: #52606d;
+.toolbar button {
+  min-width: 30px;
+  cursor: pointer;
 }
 
-.demo .viewer {
-  height: 65vh;
-  min-height: 360px;
-  border: 1px solid #cbd2d9;
-  background: #fff;
+.toolbar button:hover:not(:disabled) {
+  border-color: var(--ink);
 }
 
-.demo pre {
-  margin: 0;
-  min-height: 11em;
+.toolbar button:disabled {
+  color: var(--rule);
+  cursor: default;
+}
+
+.toolbar input {
+  width: 13rem;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.toolbar output {
+  min-width: 3.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.toolbar .pages {
+  margin-left: auto;
+}
+
+.viewer {
+  min-height: 0;
+}
+
+.log {
+  height: 8.6em;
+  padding: 8px 16px;
+  overflow-y: auto;
+  background: var(--paper);
+  border-top: 1px solid var(--rule);
+}
+
+.log p,
+.log ol {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.log li {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.log li:first-child {
+  color: var(--ink);
+}
+
+/* ------------------------------------------------- the selection menu
+ * The viewer portals it to the body, next to the selection. */
+
+.selection-menu {
+  display: grid;
+  gap: 2px;
+  min-width: 13rem;
   padding: 8px;
-  overflow: auto;
-  font-size: 12px;
-  background: #fff;
-  border: 1px solid #cbd2d9;
+  font: 13px/1.3 var(--ui);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(23 32 44 / 0.22);
+}
+
+.selection-menu p {
+  padding: 0 6px 4px;
+  font-weight: 600;
+}
+
+.selection-menu button {
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.selection-menu button:hover {
+  background: var(--tint);
+}
+
+.selection-menu-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.selection-menu-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+}
+
+/* ----------------------------------------------------------------- narrow */
+
+@media (max-width: 820px) {
+  .demo {
+    height: auto;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stage {
+    order: -1;
+  }
+
+  .viewer {
+    height: 70dvh;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .toolbar .pages {
+    margin-left: 0;
+  }
 }

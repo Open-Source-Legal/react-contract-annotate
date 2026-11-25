@@ -1,0 +1,15 @@
+Features
+Heading 1
+Heading 2
+bold italic underlined struck supersub	after a tab
+after a break
+First item
+Nested item
+Term
+Meaning
+Spanning both columns
+Spanning two rows
+first
+second
+ after an image
+After a page break.
