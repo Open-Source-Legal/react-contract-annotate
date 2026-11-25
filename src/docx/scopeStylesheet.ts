@@ -46,18 +46,8 @@
  *   is the frame `DocxView` puts around the scope element.
  * - A kept `font-family` can name a font the host page declared, which the
  *   browser then loads from the host's own URL.
- * - Of what the browser's parser does with the document's text before any
- *   rule is returned, it bounds one thing, in one place: how deep the
- *   parser nests when this module parses a `<style>` block. A block with
- *   more than `MAX_CSS_NESTING_OPENERS` of `{` or of `(` is not parsed (see
- *   that constant for why and for the depths measured), and the whole
- *   document stylesheet is then dropped as rejected. It does not bound the
- *   parser's time or memory. It bounds nothing outside this module's own
- *   parsing: `DOMPurify.sanitize`, which the loader runs first, builds the
- *   document's `<style>` blocks into stylesheets while it parses the HTML,
- *   and the browser parses a `style` attribute as soon as any HTML parser
- *   makes the element (in DOMPurify, and in the template `isolateDocument`
- *   reads the HTML into), before `cleanInlineStyle` can look at it.
+ * - It does not bound what the browser's parser does with the document's
+ *   text before any rule is returned (its time, memory or stack).
  *
  * Inline `style` attributes (`cleanInlineStyle`) are parsed by the browser
  * on their element (which stands in a template, so nothing is applied or
@@ -65,7 +55,6 @@
  * attribute written is validated the same way; it is removed when nothing
  * is left or the validation fails.
  */
-import { MAX_CSS_NESTING_OPENERS } from "./constants";
 import {
   isAllowedDeclaration,
   isSafeSelectorList,
@@ -91,27 +80,6 @@ export const parseInDetachedDocument: CssParser = (css) => {
   detached.head.append(style);
   return style.sheet ? Array.from(style.sheet.cssRules) : null;
 };
-
-const OPEN_BRACE = "{".charCodeAt(0);
-const OPEN_PARENTHESIS = "(".charCodeAt(0);
-
-/**
- * Whether `text` could nest deeper than document CSS may: it holds more
- * than `MAX_CSS_NESTING_OPENERS` of `{` or of `(`. A count only: nothing
- * closes a level, whatever follows.
- */
-function nestsTooDeep(text: string): boolean {
-  let braces = 0;
-  let parentheses = 0;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code === OPEN_BRACE) braces++;
-    else if (code === OPEN_PARENTHESIS) parentheses++;
-    else continue;
-    if (Math.max(braces, parentheses) > MAX_CSS_NESTING_OPENERS) return true;
-  }
-  return false;
-}
 
 type GroupKind = "CSSMediaRule" | "CSSSupportsRule" | "CSSContainerRule";
 type RuleKind = "CSSStyleRule" | GroupKind;
@@ -393,10 +361,7 @@ function conforms(
 
 export interface ScopedStylesheet {
   css: string;
-  /**
-   * True when nothing of the stylesheet is kept: a block could nest too
-   * deep to be parsed, or the result failed its validation.
-   */
+  /** True when the stylesheet failed the check and nothing of it is kept. */
   rejected: boolean;
 }
 
@@ -404,18 +369,14 @@ export interface ScopedStylesheet {
  * The stylesheets `sheets` (the text of each `<style>` block of a document)
  * as one stylesheet scoped to `scope` (a selector): each rewritten from its
  * parsed rules, the result joined and validated by parsing it (see the
- * module comment). Empty when a block cannot be parsed. Empty and
- * `rejected` when the validation fails, or when a block could nest too deep
- * (`nestsTooDeep`): then no block is parsed at all. `parse` is the
- * browser's parser.
+ * module comment). Empty when a block cannot be parsed, and empty and
+ * `rejected` when the validation fails. `parse` is the browser's parser.
  */
 export function scopeStylesheets(
   sheets: readonly string[],
   scope: string,
   parse: CssParser = parseInDetachedDocument
 ): ScopedStylesheet {
-  // Before any parse: this is where document CSS first reaches the parser.
-  if (sheets.some(nestsTooDeep)) return { css: "", rejected: true };
   const written: Written[] = [];
   for (const sheet of sheets) {
     const rules = parse(sheet);

@@ -86,10 +86,7 @@ export interface IsolatedDocument {
   html: string;
   /** Its stylesheets as one, scoped and reduced to what the allow-list keeps. */
   css: string;
-  /**
-   * True when that stylesheet was dropped: a block could nest too deep to
-   * be parsed, or the result failed its validation.
-   */
+  /** True when that stylesheet failed its validation and was dropped. */
   cssRejected: boolean;
 }
 
