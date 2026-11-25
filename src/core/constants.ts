@@ -118,6 +118,19 @@ export const SCROLL_SETTLE_FRAMES = 10;
 /** `KeyboardEvent.key` of the key that cancels a pending selection. */
 export const ESCAPE_KEY = "Escape";
 
+/** The buttons of the host's `annotationActions`, in a label chip. */
+export const ANNOTATION_ACTION_BUTTON = {
+  /** Space between the label and a button, and between buttons. */
+  gap: "4px",
+  /** Height, and least width, relative to the chip's font size. */
+  size: "1.5em",
+  padding: "0 0.25em",
+  radius: "3px",
+  /** Share of the chip's text colour laid over the chip under the pointer. */
+  hoverTintPercent: 24,
+  disabledOpacity: 0.45,
+} as const;
+
 /**
  * Defaults of the theming custom properties the shell defines on its root,
  * defined here only: the formats' layers, inside the root, read them as

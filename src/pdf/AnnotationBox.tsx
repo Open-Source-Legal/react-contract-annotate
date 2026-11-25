@@ -42,6 +42,7 @@ import {
   useOnAnnotationClick,
   useOnAnnotationHover,
   useOpenLink,
+  useAnnotationActionButtons,
   useRenderAnnotationActions,
   useSelectedAnnotationIds,
   useSelectedRelations,
@@ -201,6 +202,7 @@ export function AnnotationBox({ annotation, pageInfo }: AnnotationBoxProps) {
   const { showBoundingBoxes, labelDisplay } = useDisplaySettings();
   const selectedRelation: Relation | undefined = useSelectedRelations()[0];
   const renderAnnotationActions = useRenderAnnotationActions();
+  const actionButtons = useAnnotationActionButtons(annotation.source);
   const reportClick = useOnAnnotationClick();
   const reportHover = useOnAnnotationHover();
   const openLink = useOpenLink();
@@ -290,6 +292,7 @@ export function AnnotationBox({ annotation, pageInfo }: AnnotationBoxProps) {
                 annotation={annotation}
                 color={color}
                 visible={chipVisible}
+                actions={actionButtons}
               >
                 {chipVisible && renderAnnotationActions
                   ? renderAnnotationActions(annotation.source, {

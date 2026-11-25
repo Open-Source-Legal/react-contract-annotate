@@ -22,6 +22,8 @@ import {
 const CENTRE_TOLERANCE_PX = 80;
 /** Tolerance (px) of measured sizes. */
 const SIZE_TOLERANCE_PX = 1;
+/** How far (px) a chip of controls may be from the start of its annotation. */
+const CHIP_TOLERANCE_PX = 3;
 /** A zoom at which the fixture's annotations sit below the first view. */
 const TALL_ZOOM = 3;
 /** A zoom at which a landscape page is well short of the viewer. */
@@ -1109,6 +1111,60 @@ test("an annotation across runs of different formatting is drawn, a part per run
     "underlined",
   ]);
   expect(await callHandle(page, "scrollToAnnotation", ["f-runs"])).toBe(true);
+});
+
+test("annotationActions: the annotation under the pointer gets a chip with the buttons above its start; a click calls the action; the chip follows a zoom and goes when the pointer leaves", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness actions />);
+  await waitForDocumentLoad(page);
+  const start = annotationParts(page, "d-2").first();
+  const chip = annotatorRoot(page).locator('[data-rca-docx-actions="d-2"]');
+  await expect(annotatorRoot(page).locator("[data-rca-docx-actions]")).toHaveCount(0);
+
+  /** The chip's left edge on the annotation's, its bottom on the line's top. */
+  const expectOnStart = async () => {
+    await expect
+      .poll(async () => {
+        const [mark, box] = await Promise.all([boxOf(start), boxOf(chip)]);
+        return Math.max(
+          Math.abs(box[0] - mark[0]),
+          Math.abs(box[1] + box[3] - mark[1])
+        );
+      })
+      .toBeLessThanOrEqual(CHIP_TOLERANCE_PX);
+  };
+
+  await start.hover();
+  await expect(chip).toBeVisible();
+  await expect(chip).toContainText("Definition");
+  await expectOnStart();
+
+  // From the annotation onto its chip: it stays, and its buttons work.
+  await chip.getByRole("button", { name: "Edit" }).click();
+  await chip.getByRole("button", { name: "Remove" }).click();
+  expect(
+    (await harnessEvents(page, "action")).map(([, action, annotation]) => [
+      action,
+      (annotation as Annotation).id,
+    ])
+  ).toEqual([
+    ["edit", "d-2"],
+    ["remove", "d-2"],
+  ]);
+  expect(await harnessEvents(page, "onAnnotationClick")).toEqual([]);
+  expect(await harnessEvents(page, "onSelectionChange")).toEqual([]);
+
+  // Selected, it keeps its chip without the pointer, where a zoom puts it.
+  await callHandle(page, "selectAnnotations", [["d-2"], { scroll: false }]);
+  await pointerAway(page);
+  await callHandle(page, "setZoom", [1.5]);
+  await expect(chip).toBeVisible();
+  await expectOnStart();
+
+  await callHandle(page, "clearSelection", []);
+  await expect(chip).toHaveCount(0);
 });
 
 test("with showStructural on, a structural paragraph gives way to an annotation strictly inside it", async ({

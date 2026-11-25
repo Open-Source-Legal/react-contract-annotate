@@ -51,6 +51,7 @@ import {
   eventLog,
   loggedCallbacks,
   renderMenu,
+  useLoggedActions,
   useHandleSetter,
 } from "./harnessShared";
 import type { CallbackName } from "./harnessShared";
@@ -64,6 +65,8 @@ export interface PdfHarnessProps {
   props?: Partial<PdfAnnotatorProps>;
   omitCallbacks?: CallbackName[];
   selectionMenu?: boolean;
+  /** Passes the `annotationActions` of `useLoggedActions`. */
+  actions?: boolean;
   addCreated?: boolean;
   freshPawls?: boolean;
   rerenderOnCallbacks?: boolean;
@@ -134,6 +137,7 @@ export function PdfHarness({
   props = {},
   omitCallbacks = [],
   selectionMenu = false,
+  actions = false,
   addCreated = false,
   freshPawls = false,
   rerenderOnCallbacks = false,
@@ -162,6 +166,7 @@ export function PdfHarness({
   }, [files, withPawls]);
 
   const setHandle = useHandleSetter(name);
+  const loggedActions = useLoggedActions(log);
 
   // Memoised: annotations with `linkUrls` applied are new objects, and a new
   // annotation object on every render would be renormalised every render.
@@ -208,6 +213,7 @@ export function PdfHarness({
         annotations={annotations}
         relations={data.relations}
         renderSelectionMenu={selectionMenu ? renderMenu : undefined}
+        annotationActions={actions ? loggedActions : undefined}
         {...props}
         {...controlled}
         {...loggedCallbacks(

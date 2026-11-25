@@ -500,6 +500,42 @@ test("plain click on a-title fires onAnnotationClick and does not select", async
   expect(await harnessEvents(page, "onSelectionChange")).toEqual([]);
 });
 
+test("annotationActions: the chip of the annotation under the pointer has the buttons; a click calls the action and is not a click on the annotation", async ({
+  mount,
+  page,
+}) => {
+  await mount(<PdfHarness annotationIds={["a-title"]} actions />);
+  await waitForDocumentLoad(page);
+  const root = annotatorRoot(page);
+  const box = annotationBox(root, "a-title", 0);
+  await expect(box).toHaveCount(1);
+  // With the default labelDisplay the chip, and so the buttons, come on hover.
+  await expect(root.locator("[data-rca-annotation-action]")).toHaveCount(0);
+
+  await box.hover();
+  const buttons = box.locator("button[data-rca-annotation-action]");
+  await expect(buttons).toHaveCount(2);
+  await expect(buttons.nth(0)).toHaveAccessibleName("Edit");
+  await expect(buttons.nth(0).locator("[data-harness-icon]")).toBeVisible();
+  await expect(buttons.nth(1)).toHaveText("Remove");
+
+  await buttons.nth(0).click();
+  await buttons.nth(1).click();
+
+  expect(
+    (await harnessEvents(page, "action")).map(([, action, annotation]) => [
+      action,
+      (annotation as Annotation).id,
+    ])
+  ).toEqual([
+    ["edit", "a-title"],
+    ["remove", "a-title"],
+  ]);
+  expect(await harnessEvents(page, "onAnnotationClick")).toEqual([]);
+  expect(await harnessEvents(page, "onSelectionChange")).toEqual([]);
+  await expect(box).toHaveAttribute("data-selected", "false");
+});
+
 test("showStructural=false hides a-structural; true shows it; visibleLabelIds=['l-clause'] hides a-title", async ({
   mount,
   page,

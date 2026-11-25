@@ -27,6 +27,7 @@ export type { FormatDriver } from "./format";
 export {
   useActiveHighlightId,
   useAllAnnotations,
+  useAnnotationActions,
   useDevWarnOnce,
   useDisplaySettings,
   useDocumentStatus,
@@ -47,6 +48,7 @@ export type { DisplaySettings, DocumentStatus } from "./state/atoms";
 
 export { ESCAPE_KEY } from "./constants";
 export { isUrlAnnotation, useOpenLink } from "./links";
+export { useAnnotationActionButtons } from "./AnnotationActionButtons";
 export { LabelChip, labelColor } from "./LabelChip";
 export type { LabelChipProps } from "./LabelChip";
 

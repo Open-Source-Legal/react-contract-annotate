@@ -1,6 +1,7 @@
 /**
  * The label chip of a rendered annotation: the label text on the label's
- * colour, with the host's `renderAnnotationActions` content beside it.
+ * colour, with the host's `annotationActions` buttons and
+ * `renderAnnotationActions` content beside it.
  * Ported from OpenContracts' `LabelTagContainer`
  * (`annotator/display/components/Containers.tsx`, 98286cabf) and the chip
  * body of `Selection.tsx`, without the radial action cloud, the pencil and
@@ -68,15 +69,29 @@ export interface LabelChipProps {
   color: string;
   /** When false nothing is rendered. */
   visible: boolean;
-  /** The host's content (`renderAnnotationActions`), after the label text. */
+  /**
+   * The buttons of the host's `annotationActions`
+   * (`useAnnotationActionButtons`), after the label text.
+   */
+  actions?: ReactNode;
+  /** The host's content (`renderAnnotationActions`), after the buttons. */
   children?: ReactNode;
 }
 
-/** `[data-rca-label-chip]`: the label text, then the host's content. */
+/** Whether a node draws anything. */
+function isContent(node: ReactNode): boolean {
+  return node != null && node !== false;
+}
+
+/**
+ * `[data-rca-label-chip]`: the label text, then the host's buttons and
+ * content.
+ */
 export function LabelChip({
   annotation,
   color,
   visible,
+  actions,
   children,
 }: LabelChipProps) {
   if (!visible) return null;
@@ -103,13 +118,15 @@ export function LabelChip({
         >
           <span>{annotationChipLabel(annotation)}</span>
         </div>
-        {children != null && children !== false && (
+        {(isContent(actions) || isContent(children)) && (
           <span
             data-rca-annotation-actions=""
+            style={{ display: "inline-flex", alignItems: "center" }}
             onMouseDown={stopPropagation}
             onTouchStart={stopPropagation}
             onClick={stopPropagation}
           >
+            {actions}
             {children}
           </span>
         )}

@@ -240,6 +240,27 @@ export type SelectionMenuContext = PendingActions;
 
 export type LabelDisplay = "always" | "hover" | "hide";
 
+/**
+ * A control the host adds beside an annotation's label: what is drawn and
+ * what a click on it does (delete, edit, approve …). The library draws the
+ * button and calls `onClick`; what the action does, and to which data, is
+ * the host's.
+ */
+export interface AnnotationAction<TMeta = unknown> {
+  /** Stable and unique among the actions: the button's `data-rca-annotation-action`. */
+  id: string;
+  /** The button's accessible name and tooltip. */
+  label: string;
+  /** What is drawn on the button (an icon element, text); `label` when absent. */
+  icon?: ReactNode;
+  /** A click on the button. It is not a click on the annotation. */
+  onClick(annotation: Annotation<TMeta>, event: ReactMouseEvent): void;
+  /** Whether the action is offered for `annotation`. Default: for every one. */
+  isVisible?(annotation: Annotation<TMeta>): boolean;
+  /** Whether the button is drawn but cannot be used. Default: never. */
+  isDisabled?(annotation: Annotation<TMeta>): boolean;
+}
+
 export type ChangeInfo = { source: "user" | "api" };
 
 export interface AnnotatorCommonProps<TMeta = unknown> {
@@ -302,13 +323,24 @@ export interface AnnotatorCommonProps<TMeta = unknown> {
   onAnnotationHover?(a: Annotation<TMeta> | null): void;
   onOpenLink?(url: string, source: Annotation<TMeta> | "native"): void;
 
+  /**
+   * Buttons beside every annotation's label, in this order, shown with the
+   * label (see `labelDisplay`). On a DOCX they are shown for the annotation
+   * under the pointer and for the selected ones. Like the other inputs, the
+   * array is compared by identity: pass the same array while the actions are
+   * the same, or every label is drawn again on each of your renders.
+   */
+  annotationActions?: AnnotationAction<TMeta>[];
+
   // render slots: nothing is rendered when a slot is absent
   renderSelectionMenu?(ctx: SelectionMenuContext): ReactNode;
   /**
-   * Host content inside an annotation's label chip, shown with the chip (PDF
-   * only). Its wrapper stops mousedown, touchstart and click from
-   * propagating: pressing or clicking it neither starts a text selection nor
-   * counts as a click on the annotation.
+   * Host content inside an annotation's label chip, after the buttons of
+   * `annotationActions`, shown with the chip (on a DOCX, with the chip of
+   * the annotation under the pointer and of the selected ones). Its wrapper
+   * stops mousedown, touchstart and click from propagating: pressing or
+   * clicking it neither starts a text selection nor counts as a click on
+   * the annotation.
    */
   renderAnnotationActions?(
     a: Annotation<TMeta>,

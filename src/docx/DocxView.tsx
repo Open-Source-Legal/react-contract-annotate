@@ -64,6 +64,10 @@
  * Status: `ready` once the first projection of a document is laid out;
  * `error` when a pagination fails (what it left in the pages is removed).
  *
+ * The host's controls: the annotation under the pointer and the selected
+ * ones get a real label chip with the host's `annotationActions` buttons and
+ * `renderAnnotationActions` content, over their CSS one (`ActionChips.tsx`).
+ *
  * Removed from OpenContracts: the built-in selection menu and its portal,
  * `getSpan` and the CRUD callbacks, the read-only / label gates on selecting
  * (core applies `readOnly` when committing), the ref registry, the loading
@@ -80,7 +84,14 @@
 import { AnnotationLabelMode, projectAnnotationsOntoHtml } from "docxodus";
 import type { ExternalAnnotationProjectionSettings } from "docxodus";
 import { usePagination } from "docxodus/react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
@@ -91,6 +102,7 @@ import {
   centreBox,
   useActiveHighlightId,
   useAllAnnotations,
+  useAnnotationActions,
   useCompleteSelection,
   useDisplaySettings,
   useHighlights,
@@ -100,6 +112,7 @@ import {
   useOpenLink,
   usePendingActions,
   usePendingSelection,
+  useRenderAnnotationActions,
   useRootElement,
   useScrollRequest,
   useSelectedAnnotationIds,
@@ -116,7 +129,9 @@ import type {
   ScrollTarget,
   SpanAnnotationJson,
 } from "../core/index";
+import { ActionChips } from "./ActionChips";
 import {
+  ACTION_CHIP_LINGER_MS,
   BOOKMARK_SCROLL_BEHAVIOR,
   CSS_CLASS_PREFIX,
   DOCUMENT_BACKGROUND,
@@ -580,6 +595,44 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
     reportClick(annotation.source, event);
   };
 
+  // ── The host's controls (see `ActionChips.tsx`) ──
+  const frameRef = useRef<HTMLDivElement>(null);
+  const hasActions = useAnnotationActions().length > 0;
+  const hasActionsSlot = useRenderAnnotationActions() !== undefined;
+  const chipsShown = labelDisplay !== "hide" && (hasActions || hasActionsSlot);
+  /** The annotation whose chip the pointer called up. */
+  const [pointerId, setPointerId] = useState<string | null>(null);
+  const linger = useRef<ReturnType<typeof setTimeout>>();
+  const keepChip = () => clearTimeout(linger.current);
+  // The pointer left the annotation, or its chip: on its way to the other,
+  // perhaps.
+  const releaseChip = () => {
+    clearTimeout(linger.current);
+    linger.current = setTimeout(
+      () => setPointerId(null),
+      ACTION_CHIP_LINGER_MS
+    );
+  };
+  useEffect(() => () => clearTimeout(linger.current), []);
+  const chipAnnotations = useMemo(() => {
+    if (!chipsShown) return [];
+    const ids = new Set(selectedIds);
+    if (pointerId !== null) ids.add(pointerId);
+    return [...ids].flatMap((id) => {
+      const annotation = visible.find((candidate) => candidate.id === id);
+      return annotation ? [annotation] : [];
+    });
+  }, [chipsShown, selectedIds, pointerId, visible]);
+  const firstElementOf = useCallback(
+    (id: string) => {
+      const pages = containerRef.current?.querySelector<HTMLElement>(
+        `.${pageClass(scope, "container")}`
+      );
+      return pages ? targetElement(pages, { kind: "annotation", id }) : null;
+    },
+    [scope]
+  );
+
   // ── Hover ──
   const hovered = useRef<string | null>(null);
   const hover = (id: string | null) => {
@@ -588,6 +641,13 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
     const annotation =
       id === null ? undefined : annotations.find((a) => a.id === id);
     reportHover(annotation?.source ?? null);
+    if (!chipsShown) return;
+    if (id === null) {
+      releaseChip();
+    } else {
+      keepChip();
+      setPointerId(id);
+    }
   };
   // The document leaving under the pointer gets no mouseleave.
   useEffect(
@@ -602,7 +662,7 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   };
 
   return (
-    <div data-rca-docx-frame="" style={FRAME_STYLE}>
+    <div ref={frameRef} data-rca-docx-frame="" style={FRAME_STYLE}>
       <div
         ref={containerRef}
         data-rca-docx={scope.id}
@@ -617,6 +677,18 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
         <style>{customCss}</style>
         {shown && <div ref={paginatedRef} style={PAGINATED_STYLE} />}
       </div>
+      {chipAnnotations.length > 0 && (
+        <ActionChips
+          frame={frameRef}
+          annotations={chipAnnotations}
+          pointerId={pointerId}
+          selectedIds={selectedIds}
+          elementOf={firstElementOf}
+          layout={pagination.result}
+          onPointerEnter={keepChip}
+          onPointerLeave={releaseChip}
+        />
+      )}
     </div>
   );
 }

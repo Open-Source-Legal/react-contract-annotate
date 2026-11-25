@@ -464,6 +464,158 @@ describe("click model", () => {
   });
 });
 
+describe("annotationActions", () => {
+  const actionButtons = (container: HTMLElement, id: string) =>
+    Array.from(
+      chip(container, id)?.querySelectorAll<HTMLButtonElement>(
+        "button[data-rca-annotation-action]"
+      ) ?? []
+    );
+
+  test("each action is a button in the chip, after the label: its icon, its name, its id", () => {
+    const { container } = renderBoxes({
+      annotations: [tokenAnnotation("a1")],
+      labelDisplay: "always",
+      annotationActions: [
+        { id: "edit", label: "Edit", icon: <svg data-icon="pen" />, onClick() {} },
+        { id: "delete", label: "Delete", onClick() {} },
+      ],
+    });
+
+    const buttons = actionButtons(container, "a1");
+    expect(
+      buttons.map((button) => [
+        button.getAttribute("data-rca-annotation-action"),
+        button.getAttribute("aria-label"),
+        button.title,
+        button.type,
+      ])
+    ).toEqual([
+      ["edit", "Edit", "Edit", "button"],
+      ["delete", "Delete", "Delete", "button"],
+    ]);
+    expect(buttons[0].querySelector("[data-icon='pen']")).not.toBeNull();
+    // Without an icon the name is what is drawn.
+    expect(buttons[1].textContent).toBe("Delete");
+    expect(chip(container, "a1")?.textContent).toBe("ClauseDelete");
+  });
+
+  test("a click calls the action with the host's annotation and is not a click on the annotation", () => {
+    const onClick = vi.fn();
+    const onAnnotationClick = vi.fn();
+    const onSelectionChange = vi.fn();
+    const annotation = tokenAnnotation("a1");
+    const { container } = renderBoxes({
+      annotations: [annotation],
+      labelDisplay: "always",
+      annotationActions: [{ id: "delete", label: "Delete", onClick }],
+      onAnnotationClick,
+      onSelectionChange,
+    });
+
+    const [button] = actionButtons(container, "a1");
+    fireEvent.mouseDown(button);
+    fireEvent.click(button, { shiftKey: true });
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onClick.mock.calls[0][0]).toBe(annotation);
+    expect(onClick.mock.calls[0][1].type).toBe("click");
+    expect(onAnnotationClick).not.toHaveBeenCalled();
+    expect(onSelectionChange).not.toHaveBeenCalled();
+  });
+
+  test("isVisible leaves an action out for an annotation; isDisabled keeps it but not clickable", () => {
+    const onClick = vi.fn();
+    const { container } = renderBoxes({
+      annotations: [
+        tokenAnnotation("a-own"),
+        tokenAnnotation("a-structural", { structural: true }),
+      ],
+      labelDisplay: "always",
+      showStructural: true,
+      annotationActions: [
+        {
+          id: "delete",
+          label: "Delete",
+          onClick,
+          isVisible: (a) => !a.structural,
+        },
+        {
+          id: "approve",
+          label: "Approve",
+          onClick,
+          isDisabled: (a) => a.id === "a-own",
+        },
+      ],
+    });
+
+    expect(
+      actionButtons(container, "a-own").map((b) => [
+        b.getAttribute("data-rca-annotation-action"),
+        b.disabled,
+      ])
+    ).toEqual([
+      ["delete", false],
+      ["approve", true],
+    ]);
+    expect(
+      actionButtons(container, "a-structural").map((b) =>
+        b.getAttribute("data-rca-annotation-action")
+      )
+    ).toEqual(["approve"]);
+
+    fireEvent.click(actionButtons(container, "a-own")[1]);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  test("the actions are shown with the chip: on hover or selection by default, never with labelDisplay hide", () => {
+    const annotationActions = [{ id: "delete", label: "Delete", onClick() {} }];
+    const view = renderBoxes({
+      annotations: [tokenAnnotation("a1")],
+      annotationActions,
+    });
+    expect(chip(view.container, "a1")).toBeNull();
+
+    fireEvent.mouseEnter(box(view.container, "a1")!);
+    expect(actionButtons(view.container, "a1")).toHaveLength(1);
+
+    view.rerender({
+      annotations: [tokenAnnotation("a1")],
+      annotationActions,
+      labelDisplay: "hide",
+    });
+    expect(
+      view.container.querySelector("[data-rca-annotation-action]")
+    ).toBeNull();
+  });
+
+  test("actions come before the content of renderAnnotationActions; no action, no wrapper", () => {
+    const view = renderBoxes({
+      annotations: [tokenAnnotation("a1")],
+      labelDisplay: "always",
+      annotationActions: [{ id: "delete", label: "Delete", onClick() {} }],
+      renderAnnotationActions: () => <i data-host-action="" />,
+    });
+    const wrapper = chip(view.container, "a1")?.querySelector(
+      "[data-rca-annotation-actions]"
+    );
+    expect(
+      Array.from(wrapper?.children ?? []).map((child) => child.tagName)
+    ).toEqual(["BUTTON", "I"]);
+
+    view.rerender({
+      annotations: [tokenAnnotation("a1")],
+      labelDisplay: "always",
+      annotationActions: [
+        { id: "delete", label: "Delete", onClick() {}, isVisible: () => false },
+      ],
+    });
+    expect(
+      chip(view.container, "a1")?.querySelector("[data-rca-annotation-actions]")
+    ).toBeNull();
+  });
+});
+
 describe("label colours on PDF", () => {
   test.each([
     ["3-digit hex", "#f00", "rgb(255, 0, 0)", "rgba(255, 0, 0,"],
