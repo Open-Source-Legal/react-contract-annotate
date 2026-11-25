@@ -480,6 +480,32 @@ extraction):*
 Unsupported props are accepted and ignored on DOCX, with a one-time
 development warning, and the matrix is in the README.
 
+**DOCX behaviour that deliberately differs from OpenContracts** *(amended
+during implementation; each is a defect in the OpenContracts renderer at
+`98286cabf` that the port does not reproduce):*
+
+- Structural annotations are actually drawn when `showStructural` is on (in
+  OpenContracts the toggle projected nothing).
+- The projected HTML's pretty-printing whitespace is not rendered as text, so
+  the document no longer gains a blank line and an indent once annotations
+  are projected.
+- A zoomed page that overflows is scrollable to its left edge instead of
+  being cut off.
+- Selecting repeated text resolves to the occurrence the user selected, not
+  the last one.
+
+**Overlap rule.** The DOCX engine cannot draw two spans that share a start or
+an end, or that partially overlap; it keeps one. The library's policy: user
+annotations, highlights and the pending selection take precedence over
+structural annotations, so a structural span that would suppress one of them
+is left out of the projection. Among non-structural spans the engine's choice
+stands. `scrollToAnnotation` / `scrollToHighlight` resolve `false` promptly
+for a target the projection did not draw.
+
+**Isolation.** The converted document's own stylesheet is scoped to its
+viewer instance: it must not restyle the host page or another viewer, and
+host CSS class names must not collide with the document's.
+
 **Scrolling element.** The component's root is the scroll container and
 fills its parent; the parent must have a height. The existing fallback to
 window scrolling when the root does not overflow is kept.
