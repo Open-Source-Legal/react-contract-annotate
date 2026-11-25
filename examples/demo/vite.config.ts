@@ -12,20 +12,19 @@ const repoRoot = path.resolve(here, "../..");
 
 /** Directories served next to the app, by URL prefix. */
 const STATIC_DIRS = {
-  // The library's fixtures: the eton PDF with its PAWLS and annotations, and
-  // the DOCX with its text and annotations.
-  "/fixtures/": path.join(repoRoot, "fixtures"),
   // docxodus' WebAssembly runtime, which the DOCX viewer fetches at run time
-  // (`wasmBaseUrl`).
+  // (`wasmBaseUrl`). The documents themselves are in `public/`.
   "/docxodus-wasm/": path.join(here, "node_modules/docxodus/dist/wasm"),
 } as const;
 
+/**
+ * The path the demo is served under: "/" locally, the repository's name on
+ * GitHub Pages (set by the Pages workflow).
+ */
+const BASE = process.env.DEMO_BASE ?? "/";
+
 const CONTENT_TYPES: Record<string, string> = {
   ".json": "application/json",
-  ".pdf": "application/pdf",
-  ".docx":
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".txt": "text/plain; charset=utf-8",
   ".js": "application/javascript",
   ".wasm": "application/wasm",
   ".dat": "application/octet-stream",
@@ -38,7 +37,11 @@ function staticDirs(): Plugin {
     res: ServerResponse,
     next: () => void
   ) => {
-    const pathname = decodeURIComponent((url ?? "").split("?")[0]);
+    const requested = decodeURIComponent((url ?? "").split("?")[0]);
+    // The preview server keeps the base in the URL; the dev server strips it.
+    const pathname = requested.startsWith(BASE)
+      ? `/${requested.slice(BASE.length)}`
+      : requested;
     for (const [prefix, dir] of Object.entries(STATIC_DIRS)) {
       if (!pathname.startsWith(prefix)) continue;
       const file = path.join(dir, pathname.slice(prefix.length));
@@ -86,6 +89,7 @@ function staticDirs(): Plugin {
 }
 
 export default defineConfig({
+  base: BASE,
   plugins: [react(), staticDirs()],
   resolve: {
     // The library is linked from the repo root, whose own node_modules hold
