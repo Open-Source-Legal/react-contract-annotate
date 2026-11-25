@@ -4,6 +4,16 @@
 
 export * from "./types";
 
+export { fromOpenContractsExport } from "./fromOpenContractsExport";
+export type {
+  OpenContractAnnotationExport,
+  OpenContractAnnotationJsonExport,
+  OpenContractDocExport,
+  OpenContractLabelLookup,
+  OpenContractRelationshipExport,
+  OpenContractsExportInputs,
+} from "./fromOpenContractsExport";
+
 export { AnnotatorShell } from "./AnnotatorShell";
 export type { AnnotatorShellProps } from "./AnnotatorShell";
 
