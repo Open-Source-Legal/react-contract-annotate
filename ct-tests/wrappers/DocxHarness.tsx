@@ -15,8 +15,12 @@
  *   annotations), `"landscape"` (`landscape.docx`, a different page size
  *   and style sheet, without annotations) or `"hostileFont"`
  *   (`hostile-font.docx`: `test.docx` with a crafted font name, and its
- *   text and annotations) or `"hostileOverlay"` (`hostile-overlay.docx`,
- *   likewise, with a stylesheet that would cover the whole page).
+ *   text and annotations) or, likewise, `"hostileOverlay"`
+ *   (`hostile-overlay.docx`, with a stylesheet that would cover the whole
+ *   page), `"hostileFetch"` (`hostile-fetch.docx`, with background images
+ *   hidden in substitution functions) or `"hostileCounter"`
+ *   (`hostile-counter.docx`, whose paragraphs are list items incrementing a
+ *   counter).
  * - `annotationIds` picks fixture annotations by id (default: all of them,
  *   `d-bad-span` included); `extraAnnotations` are passed after them.
  * - `props` are passed through last; callbacks in it are called after the
@@ -83,6 +87,16 @@ const FIXTURES = {
   },
   hostileOverlay: {
     docx: "/fixtures/docx/hostile-overlay.docx",
+    text: "/fixtures/docx/text.txt",
+    annotations: "/fixtures/docx/annotations.json",
+  },
+  hostileFetch: {
+    docx: "/fixtures/docx/hostile-fetch.docx",
+    text: "/fixtures/docx/text.txt",
+    annotations: "/fixtures/docx/annotations.json",
+  },
+  hostileCounter: {
+    docx: "/fixtures/docx/hostile-counter.docx",
     text: "/fixtures/docx/text.txt",
     annotations: "/fixtures/docx/annotations.json",
   },

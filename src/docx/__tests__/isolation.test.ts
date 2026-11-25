@@ -34,11 +34,43 @@ test("isolateDocument cleans inline styles", () => {
   const scope = createDocxScope();
   const { html } = isolateDocument(
     '<p style="color: red; background: url(https://example.invalid/x)">a</p>' +
-      '<p style="position: fixed">b</p>',
+      '<p style="position: fixed">b</p>' +
+      '<p style="anchor-name: --menu; width: 144pt">c</p>' +
+      '<svg><rect style="fill: url(https://example.invalid/y)"></rect></svg>',
     scope,
     parseInJsdom
   );
-  expect(html).toBe('<p style="color: red;">a</p><p>b</p>');
+  expect(html).toBe(
+    '<p style="color: red;">a</p><p>b</p><p style="width: 144pt;">c</p>' +
+      "<svg><rect></rect></svg>"
+  );
+});
+
+test("isolateDocument returns all the style blocks as the one stylesheet validated", () => {
+  const scope = createDocxScope();
+  const parsed: string[] = [];
+  const { html, css, cssRejected } = isolateDocument(
+    "<style>p { color: red }</style><p>a</p>" +
+      "<svg><style>q { color: blue }</style></svg>" +
+      "<style>i { cursor: pointer }</style>",
+    scope,
+    (text) => {
+      parsed.push(text);
+      return parseInJsdom(text);
+    }
+  );
+  expect(css).toBe(
+    `${scope.selector} p { color: red; }\n${scope.selector} q { color: blue; }`
+  );
+  expect(cssRejected).toBe(false);
+  expect(html).toBe("<p>a</p><svg></svg>");
+  // The blocks, each by itself, then the stylesheet returned, whole.
+  expect(parsed).toEqual([
+    "p { color: red }",
+    "q { color: blue }",
+    "i { cursor: pointer }",
+    css,
+  ]);
 });
 
 test("isolateDocument reports a stylesheet that failed the check, and keeps none of it", () => {

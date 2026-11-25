@@ -2,9 +2,11 @@ import { expect, test } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 
 import { DocxHarness } from "./wrappers/DocxHarness";
+import { DocxParity } from "./wrappers/DocxParity";
 import { IsolatedHtml } from "./wrappers/IsolatedHtml";
 import { ScopedSheet } from "./wrappers/ScopedSheet";
 
+import type { ParityReport } from "./wrappers/DocxParity";
 import type { Annotation, AnnotationLabel, Highlight } from "../src/core/index";
 import { setupDocxodusWasm } from "./helpers/docxodusWasm";
 import { serveFixtures } from "./helpers/fixtures";
@@ -106,6 +108,52 @@ async function expectAllScoped(scopeElement: Locator): Promise<void> {
   expect(reach.unmatchable).toEqual([]);
   expect(reach.otherKinds).toEqual([]);
   expect(reach.nested).toEqual([]);
+}
+
+/**
+ * Answers every request to `example.invalid` (with nothing, so no failure
+ * reaches the console) and returns the paths requested so far.
+ */
+async function recordInvalidRequests(page: Page): Promise<string[]> {
+  const requested: string[] = [];
+  await page.route("**/example.invalid/**", async (route) => {
+    requested.push(new URL(route.request().url()).pathname);
+    await route.fulfill({ status: 200, contentType: "image/gif", body: "" });
+  });
+  return requested;
+}
+
+/**
+ * Expects the only request to `example.invalid` to be the one of the
+ * control outside the document (`/control`), which shows the interception
+ * works.
+ */
+async function expectOnlyControlRequested(
+  page: Page,
+  requested: string[]
+): Promise<void> {
+  await expect.poll(() => requested).toContain("/control");
+  await page.waitForTimeout(SETTLE_MS);
+  expect(requested).toEqual(["/control"]);
+}
+
+/** The inline style of a control fetched from `example.invalid/control`. */
+const CONTROL_STYLE = {
+  backgroundImage: "url(https://example.invalid/control)",
+  width: 10,
+  height: 10,
+};
+
+function bodyDisplay(page: Page): Promise<string> {
+  return page.evaluate(() => getComputedStyle(document.body).display);
+}
+
+/** Where an element stands in the viewport. */
+function boxOf(locator: Locator): Promise<number[]> {
+  return locator.evaluate((element) => {
+    const { left, top, width, height } = element.getBoundingClientRect();
+    return [left, top, width, height];
+  });
 }
 
 /** Well under the 5 s a bounded scroll request waits before giving up. */
@@ -1037,8 +1085,12 @@ test("a hostile label id puts no rule on the page: the only stylesheets are the 
   ).toBe("block");
 });
 
-/** Stylesheets crafted to break out of a scope, as a document could carry. */
-const HOSTILE_SHEETS: Record<string, string> = {
+/**
+ * Stylesheets crafted to break out of a scope, to fetch, or to take a name
+ * the host page uses, as a document could carry; an array is a document
+ * with several `<style>` blocks.
+ */
+const HOSTILE_SHEETS: Record<string, string | string[]> = {
   // An unescaped line break ends a CSS string: docxodus writes a font name
   // as is, so one with a line break opens rules of its own.
   "a line break in a string":
@@ -1067,6 +1119,55 @@ const HOSTILE_SHEETS: Record<string, string> = {
     " body { color: blue; & ~ * { display: none } }" +
     " :root { & + * { display: none } }" +
     " @media all { ~ div { display: none } body { & ~ * { display: none } } }",
+  // Two blocks: the url( left open by the first runs on over the join into
+  // the text of the second, whose string then ends it.
+  "an open url( in one stylesheet, ended in the next": [
+    "p { background-image: env(x, url(data:abc",
+    'p { content: ")) } body { display: none } x { " }',
+  ],
+  // A substitution function carries its fallback as source text, CSS
+  // escapes and all: `u\72l(` is `url(` once it is parsed again.
+  "a url() spelt with an escape in the fallback of env()":
+    "p { background-image: env(nope, u\\72l(https://example.invalid/env1)) }",
+  "a url() spelt with an escape inside if()":
+    "p { background-image: if(else: u\\72l(https://example.invalid/if1)) }",
+  "a url() spelt with an escape in the fallback of var()":
+    "p { background-image: var(--nope, u\\72l(https://example.invalid/var1)); color: var(--nope, red) }",
+  // Chromium lists !important declarations last when the block holds a
+  // custom property, so the string that hid a declaration is cut open.
+  "a declaration smuggled in a string split by !important":
+    'p { --z: 1; color: env(x) "; background-image: u\\72l(https://example.invalid/smuggled); x: " !important; background-color: env(x) "abc',
+  "a rule smuggled in a string split by !important":
+    'p { --z: 1; color: env(x) ")} body{display:none} q{" !important; background-color: env(x) "abc',
+  // Anchor names belong to the whole page: the host's box positioned
+  // against `--menu` would move onto the document's paragraph.
+  "an anchor name the host positions against":
+    "p { anchor-name: --menu; color: red }",
+  "the other names shared with the page":
+    "p { view-transition-name: hero; container-name: host; container-type: size;" +
+    " counter-increment: host 5; counter-reset: host; page: host; anchor-scope: all;" +
+    " position-anchor: --menu; animation-name: host; timeline-scope: --host; color: red }",
+  // Shorthands that set a longhand off the allow-list, and `all`.
+  "images through shorthands":
+    "p { background: red url(https://example.invalid/bg); list-style: url(https://example.invalid/ls) inside;" +
+    " border-image: url(https://example.invalid/bi) 1; mask: url(https://example.invalid/mask); all: initial;" +
+    " cursor: url(https://example.invalid/cursor), auto; -webkit-box-reflect: below 0 url(https://example.invalid/reflect) }" +
+    " p::before { content: url(https://example.invalid/content) }",
+  // What a kept at-rule's condition can carry.
+  "conditions carrying text": [
+    '@supports (--x: ")} body{display:none} q{(") { p { color: red } }',
+    "@media (min-width: env(x, u\\72l(https://example.invalid/mq))) { p { background-image: url(https://example.invalid/mq2) } }",
+    "@container style(--x: url(https://example.invalid/cq)) { body { display: none } }",
+    "@supports selector(body) { body { display: none } }",
+  ],
+  // At-rules that act on the whole page or fetch, also inside kept ones.
+  "at-rules for the whole page":
+    "@import url(https://example.invalid/import.css);" +
+    " @font-face { font-family: leak; src: url(https://example.invalid/font.woff2) } p { font-family: leak }" +
+    " @layer x { body { display: none } } @scope (body) { :scope { display: none } }" +
+    ' @starting-style { body { display: none } } @page { margin: 0 } @property --p { syntax: "*"; inherits: true }' +
+    " @media all { @layer y { body { display: none } } @font-face { font-family: leak2; src: url(https://example.invalid/font2.woff2) }" +
+    " @scope (html) { body { display: none } } p { font-family: leak2 } }",
 };
 
 for (const [name, css] of Object.entries(HOSTILE_SHEETS)) {
@@ -1074,21 +1175,78 @@ for (const [name, css] of Object.entries(HOSTILE_SHEETS)) {
     mount,
     page,
   }) => {
+    const requested = await recordInvalidRequests(page);
     await mount(<ScopedSheet css={css} scopeId="scoper-test" />);
     const scopeElement = page.locator('[data-rca-docx="scoper-test"]');
     await expect(scopeElement.locator("style")).toHaveCount(1);
 
-    expect(
-      await page.evaluate(() => getComputedStyle(document.body).display)
-    ).toBe("block");
+    expect(await bodyDisplay(page)).toBe("block");
     await expectAllScoped(scopeElement);
     for (const probe of ["[data-probe-sibling]", "[data-probe-z]"]) {
       expect(
         await page.locator(probe).evaluate((el) => getComputedStyle(el).display)
       ).toBe("block");
     }
+    // The host's box positioned against the anchor `--menu` stands where
+    // the one positioned against a name nothing has stands.
+    expect(await boxOf(page.locator("[data-probe-anchored]"))).toEqual(
+      await boxOf(page.locator("[data-probe-unanchored]"))
+    );
+    // Nothing the stylesheet named was fetched.
+    await expectOnlyControlRequested(page, requested);
   });
 }
+
+test("the scoper drops a stylesheet that does not parse back to its rules: a namespace prefix", async ({
+  mount,
+  page,
+}) => {
+  const NAMESPACE = '@namespace svg "http://www.w3.org/2000/svg";';
+  const requested = await recordInvalidRequests(page);
+  await mount(
+    <div>
+      {/* Scoped, the rule `svg|a` stands in a stylesheet without the
+          @namespace rule that declared its prefix (at-rules of that kind
+          are dropped), so the browser's parser drops it: the stylesheet
+          inserted would not be the one written, and none of it is kept. */}
+      <ScopedSheet
+        css={`
+          ${NAMESPACE} svg|a {
+            color: rgb(1, 2, 3);
+          }
+          p {
+            color: rgb(1, 2, 3);
+          }
+        `}
+        scopeId="scoper-rejected"
+      />
+      {/* Without the prefixed rule the same stylesheet is kept. */}
+      <ScopedSheet
+        css={`
+          ${NAMESPACE} p {
+            color: rgb(1, 2, 3);
+          }
+        `}
+        scopeId="scoper-kept"
+      />
+    </div>
+  );
+  const colour = (scopeElement: Locator) =>
+    scopeElement.locator("p").evaluate((el) => getComputedStyle(el).color);
+
+  const rejected = page.locator('[data-rca-docx="scoper-rejected"]');
+  await expect(rejected).toHaveAttribute("data-css-rejected", "true");
+  expect(await rejected.locator("style").textContent()).toBe("");
+  await expect(rejected.locator("p")).toHaveText("inside");
+  expect(await colour(rejected)).not.toBe("rgb(1, 2, 3)");
+
+  const kept = page.locator('[data-rca-docx="scoper-kept"]');
+  await expect(kept).toHaveAttribute("data-css-rejected", "false");
+  expect(await colour(kept)).toBe("rgb(1, 2, 3)");
+  await expectAllScoped(kept);
+  expect(await bodyDisplay(page)).toBe("block");
+  expect(requested.filter((path) => path !== "/control")).toEqual([]);
+});
 
 test("a DOCX with a crafted font name puts no rule on the page", async ({
   mount,
@@ -1155,10 +1313,14 @@ test("the scoper keeps @supports and @container rules, scoped, and they apply in
   mount,
   page,
 }) => {
+  // The wrapper's control is fetched; nothing else is.
+  const requested = await recordInvalidRequests(page);
   await mount(
     <ScopedSheet
       css={
-        "body { container-type: inline-size }" +
+        // The container queried is the host's (the wrapper): a document
+        // cannot make one, `container-type` is not kept.
+        "body { container-type: size; margin: 0 }" +
         " @supports (display: grid) { p { color: rgb(1, 2, 3) } }" +
         " @container (min-width: 1px) { p { background-color: rgb(4, 5, 6) } }"
       }
@@ -1167,6 +1329,9 @@ test("the scoper keeps @supports and @container rules, scoped, and they apply in
   );
   const scopeElement = page.locator('[data-rca-docx="scoper-test"]');
   await expectAllScoped(scopeElement);
+  expect(
+    await scopeElement.evaluate((el) => getComputedStyle(el).containerType)
+  ).toBe("normal");
   const kinds = await scopeElement.evaluate((el) =>
     Array.from(
       el.querySelector("style")?.sheet?.cssRules ?? [],
@@ -1191,7 +1356,27 @@ test("the scoper keeps @supports and @container rules, scoped, and they apply in
   // The `p` outside keeps its own.
   expect(await colours("[data-probe-z]")).not.toContain("rgb(1, 2, 3)");
   expect(await colours("[data-probe-z]")).not.toContain("rgb(4, 5, 6)");
+  expect(requested.filter((path) => path !== "/control")).toEqual([]);
 });
+
+/** A box of the host's, away from the annotator. */
+const OVERLAY_PROBE_STYLE = {
+  position: "absolute",
+  left: 1000,
+  top: 100,
+  width: 100,
+  height: 100,
+} as const;
+
+/** Whether the host's box is what stands at its own centre. */
+function overlayProbeIsOnTop(page: Page): Promise<boolean> {
+  return page.locator("[data-probe-overlay]").evaluate((probe) => {
+    const { left, top, width, height } = probe.getBoundingClientRect();
+    return (
+      document.elementFromPoint(left + width / 2, top + height / 2) === probe
+    );
+  });
+}
 
 test("a document styled to cover the whole page stays inside its viewer", async ({
   mount,
@@ -1200,55 +1385,65 @@ test("a document styled to cover the whole page stays inside its viewer", async 
   await mount(
     <div>
       <DocxHarness fixture="hostileOverlay" />
-      <div
-        data-probe-overlay=""
-        style={{
-          position: "absolute",
-          left: 1000,
-          top: 100,
-          width: 100,
-          height: 100,
-        }}
-      />
+      <div data-probe-overlay="" style={OVERLAY_PROBE_STYLE} />
     </div>
   );
   await waitForDocumentLoad(page);
   const docx = annotatorRoot(page).locator("[data-rca-docx]");
   await expectAllScoped(docx);
-  // The document did style its own element so (the rule was kept)...
+  // Of the document's rule for its own element, `position: fixed` is not
+  // kept; the rest is (the highest z-index, the red background)...
+  expect(
+    await docx.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return [style.position, style.zIndex, style.backgroundColor];
+    })
+  ).toEqual(["static", "2147483647", "rgb(255, 0, 0)"]);
+  // ...and it covers nothing of the host's: the probe is what is there.
+  expect(await overlayProbeIsOnTop(page)).toBe(true);
+});
+
+test("the frame keeps a scope element fixed over the page inside the viewer", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <div>
+      <DocxHarness />
+      <div data-probe-overlay="" style={OVERLAY_PROBE_STYLE} />
+    </div>
+  );
+  await waitForDocumentLoad(page);
+  // What the allow-list keeps out of a document's stylesheet, put there by
+  // the test: the frame alone has to contain it.
+  await page.addStyleTag({
+    content:
+      "[data-rca-docx] { position: fixed !important; inset: 0 !important;" +
+      " z-index: 2147483647 !important; background: red !important }",
+  });
+  const docx = annotatorRoot(page).locator("[data-rca-docx]");
   expect(
     await docx.evaluate((el) => {
       const style = getComputedStyle(el);
       return [style.position, style.zIndex];
     })
   ).toEqual(["fixed", "2147483647"]);
-  // ...and it covers nothing of the host's: the probe is what is there.
-  expect(
-    await page.locator("[data-probe-overlay]").evaluate((probe) => {
-      const { left, top, width, height } = probe.getBoundingClientRect();
-      return (
-        document.elementFromPoint(left + width / 2, top + height / 2) === probe
-      );
-    })
-  ).toBe(true);
+  expect(await overlayProbeIsOnTop(page)).toBe(true);
 });
 
 test("document CSS and inline styles fetch nothing", async ({
   mount,
   page,
 }) => {
-  const requested: string[] = [];
-  await page.route("**/example.invalid/**", async (route) => {
-    requested.push(new URL(route.request().url()).pathname);
-    // An empty answer: nothing fails on the console.
-    await route.fulfill({ status: 200, contentType: "image/gif", body: "" });
-  });
+  const requested = await recordInvalidRequests(page);
   await mount(
     <IsolatedHtml
       html={
         "<style>" +
-        '[data-annotation-id="d-1"] { background: url(https://example.invalid/leak) }' +
-        ' p { background-image: url("https://example.invalid/leak2") }' +
+        "@import url(https://example.invalid/import.css);" +
+        " @font-face { font-family: leak; src: url(https://example.invalid/font.woff2) }" +
+        ' [data-annotation-id="d-1"] { background: url(https://example.invalid/leak) }' +
+        ' p { background-image: url("https://example.invalid/leak2"); font-family: leak }' +
         "</style>" +
         '<span data-annotation-id="d-1" style="background:url(https://example.invalid/x)">x</span>' +
         "<p>p</p>"
@@ -1256,7 +1451,259 @@ test("document CSS and inline styles fetch nothing", async ({
     />
   );
   // The control outside, fetched as usual, shows the interception works.
-  await expect.poll(() => requested).toContain("/control");
-  await page.waitForTimeout(SETTLE_MS);
-  expect(requested).toEqual(["/control"]);
+  await expectOnlyControlRequested(page, requested);
 });
+
+test("several style blocks are scoped as the one stylesheet inserted: an open url( does not swallow the next", async ({
+  mount,
+  page,
+}) => {
+  const requested = await recordInvalidRequests(page);
+  await mount(
+    <IsolatedHtml
+      html={
+        "<style>p { background-image: env(x, url(data:abc</style>" +
+        '<style>p { content: ")) } body { display: none } x { " }</style>' +
+        "<style>p { color: rgb(1, 2, 3) }</style>" +
+        "<p>doc</p>"
+      }
+    />
+  );
+  const scopeElement = page.locator("[data-rca-docx]");
+  await expect(scopeElement.locator("p")).toHaveText("doc");
+  await expect(scopeElement).toHaveAttribute("data-css-rejected", "false");
+  // One stylesheet, holding what the third block may say.
+  await expect(scopeElement.locator("style")).toHaveCount(1);
+  expect(
+    await scopeElement.locator("p").evaluate((el) => getComputedStyle(el).color)
+  ).toBe("rgb(1, 2, 3)");
+  expect(await bodyDisplay(page)).toBe("block");
+  await expectAllScoped(scopeElement);
+  await expectOnlyControlRequested(page, requested);
+});
+
+test("inline styles keep allow-listed declarations only: no fetch and no fixed position through a substitution function", async ({
+  mount,
+  page,
+}) => {
+  const requested = await recordInvalidRequests(page);
+  await mount(
+    <IsolatedHtml
+      html={
+        '<p data-case="env" style="background-image: env(nope, u\\72l(https://example.invalid/inl1))">a</p>' +
+        '<p data-case="var" style="position: var(--n, fixed); top: 0">b</p>' +
+        '<p data-case="sticky" style="position: env(nope, sticky); top: 0">c</p>' +
+        '<p data-case="fixed" style="position: fixed; color: rgb(1, 2, 3)">d</p>' +
+        '<p data-case="smuggled" style=\'color: env(x) "; background-image: u\\72l(https://example.invalid/inl2); x: " !important; --z: 1\'>e</p>' +
+        '<p data-case="anchor" style="anchor-name: --menu; width: 144pt">f</p>' +
+        '<p data-case="absolute" style="position: absolute; left: 10px">g</p>'
+      }
+    />
+  );
+  const scopeElement = page.locator("[data-rca-docx]");
+  await expect(scopeElement.locator("p")).toHaveCount(7);
+  expect(
+    await scopeElement
+      .locator("p")
+      .evaluateAll((elements) =>
+        elements.map((el) => [
+          el.getAttribute("data-case"),
+          el.getAttribute("style"),
+          getComputedStyle(el).position,
+          getComputedStyle(el).backgroundImage,
+        ])
+      )
+  ).toEqual([
+    ["env", null, "static", "none"],
+    ["var", "top: 0px;", "static", "none"],
+    ["sticky", "top: 0px;", "static", "none"],
+    ["fixed", "color: rgb(1, 2, 3);", "static", "none"],
+    ["smuggled", null, "static", "none"],
+    ["anchor", "width: 144pt;", "static", "none"],
+    ["absolute", "position: absolute; left: 10px;", "absolute", "none"],
+  ]);
+  expect(await bodyDisplay(page)).toBe("block");
+  await expectAllScoped(scopeElement);
+  await expectOnlyControlRequested(page, requested);
+});
+
+test("a DOCX hiding background images in substitution functions fetches nothing", async ({
+  mount,
+  page,
+}) => {
+  const requested = await recordInvalidRequests(page);
+  await mount(
+    <div>
+      <DocxHarness fixture="hostileFetch" annotationIds={["d-1", "d-2"]} />
+      <div data-control="" style={CONTROL_STYLE} />
+    </div>
+  );
+  await waitForDocumentLoad(page);
+  await expect(pages(page)).toContainText("Hello World.");
+  // What the document's second rule selects is there.
+  await expect(annotationParts(page, "d-1")).toHaveCount(1);
+  await expect(annotationParts(page, "d-2")).toHaveCount(1);
+
+  const docx = annotatorRoot(page).locator("[data-rca-docx]");
+  await expectAllScoped(docx);
+  expect(await bodyDisplay(page)).toBe("block");
+  expect(
+    await pages(page)
+      .locator("p, [data-annotation-id]")
+      .evaluateAll((elements) =>
+        elements.map((el) => getComputedStyle(el).backgroundImage)
+      )
+  ).toEqual(["none", "none", "none", "none", "none"]);
+  await expectOnlyControlRequested(page, requested);
+});
+
+test("a document's list items and counters do not renumber the host's list", async ({
+  mount,
+  page,
+}) => {
+  // The host's list shows each number as that many strokes, so the width of
+  // an item tells its number: the second item's own number, and after the
+  // third item's a counter of the host's own, `host`.
+  const hostCss =
+    '@counter-style rca-test-tally { system: additive; additive-symbols: 1 "|"; suffix: ""; }' +
+    " [data-host-list] { counter-reset: list-item 0 host 1; }" +
+    " [data-count] { list-style: rca-test-tally inside; font: 20px monospace; width: max-content; }" +
+    ' [data-count="host"]::after { content: counter(host, rca-test-tally); }';
+  await mount(
+    <div>
+      <style>{hostCss}</style>
+      <ol data-host-list="reference">
+        <li>
+          <div />
+        </li>
+        <li data-count="list-item" />
+        <li data-count="host" />
+      </ol>
+      <ol data-host-list="probe">
+        <li>
+          <DocxHarness fixture="hostileCounter" />
+        </li>
+        <li data-count="list-item" />
+        <li data-count="host" />
+      </ol>
+    </div>
+  );
+  await waitForDocumentLoad(page);
+  // The document's rule was kept, but for its `counter-increment`: its
+  // paragraphs are list items.
+  expect(
+    await pages(page)
+      .locator("p")
+      .evaluateAll((elements) =>
+        elements.map((el) => {
+          const style = getComputedStyle(el);
+          return [style.display, style.counterIncrement];
+        })
+      )
+  ).toEqual([
+    ["list-item", "none"],
+    ["list-item", "none"],
+    ["list-item", "none"],
+  ]);
+  const docx = annotatorRoot(page).locator("[data-rca-docx]");
+  await expectAllScoped(docx);
+
+  const widths = (list: string) =>
+    page
+      .locator(`[data-host-list="${list}"] [data-count]`)
+      .evaluateAll((elements) =>
+        elements.map((el) => el.getBoundingClientRect().width)
+      );
+  const reference = await widths("reference");
+  // Item 2 shows two strokes; item 3 three, and one for `host` at 1.
+  expect(reference[0]).toBeGreaterThan(0);
+  expect(reference[1]).toBeCloseTo(2 * reference[0], 0);
+  expect(await widths("probe")).toEqual(reference);
+});
+
+test("a stylesheet the browser reads back differently is dropped; the document and its annotations still render", async ({
+  mount,
+  page,
+}) => {
+  // A parser that does not read back what was written: every stylesheet
+  // parsed outside the page that holds a scope selector (that is, the one
+  // the format validates) is read with a rule more. The parsing itself is
+  // Chromium's. (The development warning is checked in the unit tests: this
+  // bundle is a production build, where it is silent.)
+  await page.evaluate(() => {
+    const textContent = Object.getOwnPropertyDescriptor(
+      Node.prototype,
+      "textContent"
+    );
+    Object.defineProperty(HTMLStyleElement.prototype, "textContent", {
+      configurable: true,
+      get(this: HTMLStyleElement) {
+        return textContent?.get?.call(this) as string;
+      },
+      set(this: HTMLStyleElement, value: string) {
+        const validated =
+          this.ownerDocument !== document && value.includes("[data-rca-docx=");
+        textContent?.set?.call(
+          this,
+          validated ? `${value}\nbody { display: none }` : value
+        );
+      },
+    });
+  });
+  await mount(<DocxHarness annotationIds={["d-1", "d-2"]} />);
+  await waitForDocumentLoad(page);
+
+  await expect(pages(page)).toContainText("Hello World.");
+  await expect(annotationParts(page, "d-1")).toHaveText(["Hello World"]);
+  await expect(annotationParts(page, "d-2")).toHaveText(["Important Clause"]);
+  const docx = annotatorRoot(page).locator("[data-rca-docx]");
+  // The document's stylesheet is empty; the format's own is there.
+  expect(
+    await docx
+      .locator("style")
+      .evaluateAll((styles) => styles.map((style) => style.textContent ?? ""))
+  ).toEqual(["", expect.stringContaining(".oc-annot-highlight")]);
+  await expectAllScoped(docx);
+  expect(await bodyDisplay(page)).toBe("block");
+  // Without its stylesheet the paragraph has the page's font, not Cambria.
+  expect(
+    await pages(page)
+      .locator("p")
+      .first()
+      .evaluate((el) => getComputedStyle(el).fontFamily)
+  ).not.toContain("Cambria");
+});
+
+/** The page-scale property docxodus declares and nothing reads. */
+const PAGE_SCALE = "--rca-parity-page-scale: 1.00";
+
+for (const fixture of ["test", "landscape"]) {
+  test(`parity: no declaration docxodus writes for ${fixture}.docx is dropped`, async ({
+    mount,
+    page,
+  }) => {
+    await mount(<DocxParity url={`/fixtures/docx/${fixture}.docx`} />);
+    const text = await page.locator("[data-parity]").textContent();
+    const report = JSON.parse(text ?? "") as ParityReport;
+
+    expect(report.rejected).toBe(false);
+    // The stylesheet docxodus wrote was read: its rules for the body, the
+    // Normal style, the pagination elements and print.
+    expect(report.emitted.length).toBeGreaterThan(80);
+    expect(report.emitted).toContain(
+      "line-height: calc(1lh * var(--docx-auto-line-spacing))"
+    );
+    expect(report.emitted).toContain("--docx-auto-line-spacing: 1.15");
+    expect(report.emitted).toContain("white-space-collapse: preserve");
+    expect(report.emitted).toContain("zoom: 1 !important");
+    // Every declaration is written, in order, as it was read; but one: the
+    // page-scale custom property, which docxodus declares and nothing reads.
+    expect(report.emitted.filter((d) => d === PAGE_SCALE)).toHaveLength(1);
+    expect(report.written).toEqual(
+      report.emitted.filter((d) => d !== PAGE_SCALE)
+    );
+    // Of its rules, only @page (the whole page's) is not kept.
+    expect(report.droppedRules).toEqual(["CSSPageRule"]);
+    expect(report.inlineWritten).toEqual(report.inlineEmitted);
+  });
+}

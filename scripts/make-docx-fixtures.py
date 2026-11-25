@@ -9,6 +9,12 @@
   its own (`} body { display: none } .z { a: `). Same text as test.docx.
 - hostile-overlay.docx: the same trick with a `body` rule that would cover
   the whole page (fixed, inset 0, the highest z-index, a red background).
+- hostile-fetch.docx: the same trick with rules, for the paragraphs and for
+  the projected annotations, whose `background-image` hides a `url()` in the
+  fallback of a substitution function, its name spelt with a CSS escape
+  (`env(x, u\72l(https://example.invalid/…))`).
+- hostile-counter.docx: the same trick with a rule making every paragraph a
+  list item that also increments a counter named `host`.
 
 Deterministic: re-running writes identical bytes.
 
@@ -29,6 +35,13 @@ OVERLAY_FONT = (
     "Evil&#10;} body { position: fixed !important; inset: 0 !important; "
     "z-index: 2147483647 !important; background: red !important } .z { a: "
 )
+# `&quot;` is a double quote in the attribute value.
+FETCH_FONT = (
+    "Evil&#10;} p { background-image: env(x, u\\72l(https://example.invalid/docx-env)) } "
+    "[data-annotation-id^=&quot;d&quot;] { background-image: "
+    "env(x, u\\72l(https://example.invalid/docx-env-annotation)) } .z { a: "
+)
+COUNTER_FONT = "Evil&#10;} p { display: list-item !important; counter-increment: host 5 } .z { a: "
 NORMAL_STYLE = '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/>'
 
 
@@ -74,6 +87,8 @@ def main() -> None:
     (FIXTURES / "landscape.txt").write_text("".join(f"{text}\n" for text in LANDSCAPE_PARAGRAPHS), encoding="utf-8")
     derive("hostile-font.docx", {"word/styles.xml": font_styles(HOSTILE_FONT)})
     derive("hostile-overlay.docx", {"word/styles.xml": font_styles(OVERLAY_FONT)})
+    derive("hostile-fetch.docx", {"word/styles.xml": font_styles(FETCH_FONT)})
+    derive("hostile-counter.docx", {"word/styles.xml": font_styles(COUNTER_FONT)})
 
 
 if __name__ == "__main__":

@@ -8,23 +8,23 @@
  *   React roots: the value of its `[data-rca-docx]` attribute, and the root
  *   of the class prefixes docxodus is asked to use for the document's classes
  *   and the pagination elements, so they are the annotator's own.
- * - The document's `<style>` blocks are taken out of its HTML and scoped
- *   (`scopeStylesheet.ts`, which also holds the check that is the security
- *   boundary); a stylesheet that fails the check is dropped whole and
+ * - The document's `<style>` blocks are taken out of its HTML and returned
+ *   as one stylesheet, scoped and reduced to allow-listed declarations
+ *   (`scopeStylesheet.ts`, which validates the stylesheet it returns: that
+ *   validation and the allow-list of `cssAllowList.ts` are the security
+ *   boundary). A stylesheet that fails the validation is dropped whole and
  *   reported (`cssRejected`).
- * - Inline `style` attributes are cleaned (`cleanInlineStyle`): nothing that
- *   fetches, no custom properties, no `position: fixed` / `sticky`.
+ * - Inline `style` attributes are reduced to allow-listed declarations the
+ *   same way (`cleanInlineStyle`).
  * - Element ids are prefixed with the scope, and same-document links
  *   (`href="#…"`) follow them. The ids `PaginatedDocument` gives its
  *   staging and page containers are removed (it finds them by class).
  *
- * What a scoped stylesheet can still do to the scope element itself (fix it
- * to the viewport, raise it above everything) is contained by the frame the
- * DOCX view puts around it (`DocxView`).
+ * What a scoped stylesheet can still do to the scope element itself is
+ * contained by the frame the DOCX view puts around it (`DocxView`).
  */
-import { DOCUMENT_CUSTOM_PROPERTIES } from "./constants";
 import { cssString } from "./cssString";
-import { cleanInlineStyle, scopeStylesheet } from "./scopeStylesheet";
+import { cleanInlineStyle, scopeStylesheets } from "./scopeStylesheet";
 import type { CssParser } from "./scopeStylesheet";
 
 export interface DocxScope {
@@ -84,17 +84,17 @@ const PAGINATION_IDS = new Set(["pagination-staging", "pagination-container"]);
 export interface IsolatedDocument {
   /** The HTML, without its stylesheets. */
   html: string;
-  /** Its stylesheets, scoped. */
+  /** Its stylesheets as one, scoped and reduced to what the allow-list keeps. */
   css: string;
-  /** True when a stylesheet failed the check and was dropped. */
+  /** True when that stylesheet failed its validation and was dropped. */
   cssRejected: boolean;
 }
 
 /**
  * The (sanitised) document HTML made the scope's own: its `<style>` blocks
- * taken out and returned scoped, its inline styles cleaned, its ids prefixed
- * and the links to them following. `parse` is the browser's CSS parser (see
- * `scopeStylesheet`).
+ * taken out and returned as one scoped stylesheet, its inline styles
+ * cleaned, its ids prefixed and the links to them following. `parse` is the
+ * browser's CSS parser (see `scopeStylesheets`).
  */
 export function isolateDocument(
   html: string,
@@ -105,23 +105,14 @@ export function isolateDocument(
   template.innerHTML = html;
   const { content } = template;
 
-  let cssRejected = false;
-  const css = Array.from(content.querySelectorAll("style"), (style) => {
+  const sheets = Array.from(content.querySelectorAll("style"), (style) => {
     style.remove();
-    const scoped = scopeStylesheet(style.textContent ?? "", scope.selector, {
-      customProperties: DOCUMENT_CUSTOM_PROPERTIES,
-      parse,
-    });
-    cssRejected ||= scoped.rejected;
-    return scoped.css;
-  })
-    .filter((sheet) => sheet !== "")
-    .join("\n");
+    return style.textContent ?? "";
+  });
+  const { css, rejected } = scopeStylesheets(sheets, scope.selector, parse);
 
-  for (const element of Array.from(
-    content.querySelectorAll<HTMLElement>("[style]")
-  )) {
-    cleanInlineStyle(element, DOCUMENT_CUSTOM_PROPERTIES);
+  for (const element of Array.from(content.querySelectorAll("[style]"))) {
+    cleanInlineStyle(element);
   }
 
   for (const element of Array.from(content.querySelectorAll("[id]"))) {
@@ -133,5 +124,5 @@ export function isolateDocument(
     if (target !== "") link.setAttribute("href", `#${scope.idPrefix}${target}`);
   }
 
-  return { html: template.innerHTML, css, cssRejected };
+  return { html: template.innerHTML, css, cssRejected: rejected };
 }

@@ -24,9 +24,10 @@
  * `wasmBaseUrl` (no `import.meta.env`), in parallel with fetching the bytes;
  * failures are reported through the document status instead of a message in
  * the view; and the document is made the annotator's own (`isolation.ts`):
- * converted with the scope's class prefixes, its stylesheet taken out and
- * scoped (and dropped, with a development warning, when it fails the
- * check), its inline styles cleaned, its ids prefixed.
+ * converted with the scope's class prefixes, its stylesheet taken out,
+ * scoped and reduced to allow-listed declarations (and dropped, with a
+ * development warning, when the result fails its validation), its inline
+ * styles reduced the same way, its ids prefixed.
  */
 import DOMPurify from "dompurify";
 import type { Config } from "dompurify";
@@ -44,7 +45,7 @@ export type DocxSource = DocxAnnotatorProps["source"];
 export interface DocxDocument {
   /** Its HTML, without its stylesheet. */
   readonly html: string;
-  /** Its stylesheet, scoped to the annotator. */
+  /** Its stylesheet, scoped to the annotator (see `isolation.ts`). */
   readonly css: string;
 }
 
@@ -66,8 +67,9 @@ const SANITIZE_CONFIG: Config = {
 
 const REJECTED_STYLESHEET_WARNING =
   "The DOCX annotator dropped the document's own stylesheet: once scoped to " +
-  "the annotator it did not parse back to the rules it was built from (a " +
-  "crafted or malformed document). The document is shown without it.";
+  "the annotator and reduced to the declarations it allows, it did not " +
+  "parse back to exactly those rules (a crafted or malformed document). " +
+  "The document is shown without it.";
 
 /** Converted docxodus HTML, sanitised (see `SANITIZE_CONFIG`). */
 export function sanitizeDocxHtml(html: string): string {

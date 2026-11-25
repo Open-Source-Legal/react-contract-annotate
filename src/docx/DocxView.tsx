@@ -12,11 +12,17 @@
  * Containment: the document is shown inside a frame of the library's own
  * (`[data-rca-docx-frame]`), around the scope element. The document's
  * stylesheet is scoped to the scope element and what is inside it, so it
- * cannot select the frame; the frame contains layout and paint and isolates
- * stacking, so nothing the document styles (a scope element fixed to the
- * viewport, raised above everything) is positioned, painted or hit outside
- * the frame or above the host's content. The frame is as wide as its
- * content or the root, whichever is wider, so a zoomed page still scrolls.
+ * cannot select the frame; the frame contains layout, paint and style and
+ * isolates stacking, so nothing the document styles (a scope element raised
+ * above everything, an element positioned far away) is positioned, painted
+ * or hit outside the frame or above the host's content, and the counters
+ * its elements increment are its own. For positions and named counters this
+ * is defence in depth: the allow-list of `cssAllowList.ts` keeps `position:
+ * fixed` and `counter-*` out of the document's CSS already. For list items
+ * it is the only barrier: `display: list-item` is kept, and without style
+ * containment the document's list items would renumber a list of the host's
+ * the annotator stands in. The frame is as wide as its content or the root,
+ * whichever is wider, so a zoomed page still scrolls.
  *
  * DOM contract: the element is `[data-rca-docx="<scope id>"]`; inside its
  * page container (class `rca-<scope id>-page-container`), each projected
@@ -149,11 +155,11 @@ const PROJECTION_SETTINGS: ExternalAnnotationProjectionSettings = Object.freeze(
 
 /**
  * The frame around the scope element (see the module comment): a containing
- * block for fixed and absolute descendants, a paint clip and a stacking
- * context, as wide as its content or the root.
+ * block for fixed and absolute descendants, a paint clip, a scope for
+ * counters and a stacking context, as wide as its content or the root.
  */
 const FRAME_STYLE: CSSProperties = Object.freeze({
-  contain: "layout paint",
+  contain: "layout paint style",
   isolation: "isolate",
   width: "max-content",
   minWidth: "100%",
