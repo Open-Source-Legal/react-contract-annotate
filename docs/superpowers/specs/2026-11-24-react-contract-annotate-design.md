@@ -196,6 +196,9 @@ type PawlsPage = { page: { width: number; height: number; index: number };
                    tokens: PawlsToken[] };             // per docs/architecture/pawls-format.md
 ```
 
+A highlight's `label`, when given, is drawn as a chip on its box, subject to
+`labelDisplay` like an annotation's label (PDF only).
+
 Token annotations and `tokens`/`bounds` highlights render in PDF; span
 annotations and `span` highlights render in DOCX. A renderer ignores kinds it
 cannot draw and warns once in development.
