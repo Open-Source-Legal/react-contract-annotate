@@ -9,6 +9,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 
 import { eventCallbacks } from "./callbacks";
 import { DOCUMENT_ERROR_MESSAGE } from "./constants";
+import { devWarnOnce } from "./devWarn";
 import type { InternalAnnotation } from "./normalize";
 import { useAnnotatorStore } from "./state/AnnotatorProvider";
 import {
@@ -41,6 +42,19 @@ export type DocumentStatusUpdate = {
   /** Default null; a generic error is recorded for `"error"` without one. */
   error?: Error | null;
 };
+
+/**
+ * A stable function that logs `message` with `console.warn` the first time
+ * `key` is seen by this instance (two annotators on a page each warn once).
+ * Does nothing in production builds.
+ */
+export function useDevWarnOnce(): (key: string, message: string) => void {
+  const store = useAnnotatorStore("useDevWarnOnce");
+  return useCallback(
+    (key: string, message: string) => devWarnOnce(store, key, message),
+    [store]
+  );
+}
 
 /** The current zoom; 1 is the page at its natural size. */
 export function useZoom(): number {

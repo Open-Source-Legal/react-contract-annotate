@@ -5,6 +5,7 @@ import { AnnotatorShell } from "../AnnotatorShell";
 import { DOCUMENT_ERROR_MESSAGE } from "../constants";
 import {
   useActiveHighlightId,
+  useDevWarnOnce,
   useDisplaySettings,
   useDocumentStatus,
   useEditing,
@@ -116,6 +117,34 @@ test("an error reported without an Error records a generic one, kept on repeat",
   expect(seen.status).toBe(first);
 });
 
+/** Calls the warn-once function it gets with `key` on every render. */
+function Warner({ keyName }: { keyName: string }) {
+  const warnOnce = useDevWarnOnce();
+  warnOnce(keyName, `warning ${keyName}`);
+  return null;
+}
+
+test("useDevWarnOnce warns once per key and annotator", () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const mount = (keyName: string) => (
+    <AnnotatorShell common={{ annotations: [] }} handleRef={null}>
+      <Warner keyName={keyName} />
+    </AnnotatorShell>
+  );
+
+  const first = render(mount("zoom"));
+  first.rerender(mount("zoom"));
+  first.rerender(mount("page"));
+  render(mount("zoom"));
+
+  expect(warn.mock.calls.map((call) => call[0])).toEqual([
+    "warning zoom",
+    "warning page",
+    "warning zoom",
+  ]);
+  warn.mockRestore();
+});
+
 const HOOKS: [string, () => unknown][] = [
   ["useZoom", () => useZoom()],
   ["useDisplaySettings", () => useDisplaySettings()],
@@ -126,6 +155,7 @@ const HOOKS: [string, () => unknown][] = [
   ["useSelectedAnnotationIds", () => useSelectedAnnotationIds()],
   ["useHighlights", () => useHighlights()],
   ["useActiveHighlightId", () => useActiveHighlightId()],
+  ["useDevWarnOnce", () => useDevWarnOnce()],
 ];
 
 test.each(HOOKS)("%s throws outside an annotator", (name, hook) => {

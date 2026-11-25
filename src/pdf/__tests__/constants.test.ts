@@ -29,3 +29,7 @@ test("library additions", () => {
   expect(C.SCROLL_LANDED_TOLERANCE_PX).toBe(1);
   expect(C.SCROLL_SETTLE_FRAMES).toBe(10);
 });
+
+test("highlight boxes paint in document order unless the host raises them", () => {
+  expect(C.HIGHLIGHT_Z_INDEX).toBe("auto");
+});

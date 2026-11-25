@@ -17,6 +17,7 @@ export type { FormatDriver } from "./format";
 export {
   useActiveHighlightId,
   useAllAnnotations,
+  useDevWarnOnce,
   useDisplaySettings,
   useDocumentStatus,
   useEditing,
@@ -59,7 +60,7 @@ export type {
   SpanAnnotation,
   TokenAnnotation,
 } from "./normalize";
-export { highlightPages } from "./highlights";
+export { highlightColor, highlightPages, isSpanHighlight } from "./highlights";
 
 export {
   doOverlap,

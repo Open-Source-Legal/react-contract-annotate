@@ -59,6 +59,13 @@ export const TOKEN_EXPANSION_PX = 1;
 export const ANNOTATION_Z_INDEX = 2;
 
 /**
+ * Stacking of a highlight box: the fallback of `--rca-z-highlight`.
+ * OpenContracts' result boundary sets no `z-index`, so highlights paint in
+ * document order, below the annotation boxes.
+ */
+export const HIGHLIGHT_Z_INDEX = "auto";
+
+/**
  * Text of the bar above an annotation box that holds the label chip
  * (`SelectionInfo`): the fallbacks of `--rca-label-font-weight` and
  * `--rca-label-font-size`.

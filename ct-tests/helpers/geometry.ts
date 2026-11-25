@@ -3,16 +3,57 @@
  * each mounted page is `[data-rca-page="<index>"]` holding one `<canvas>`;
  * an annotation's box on a page is
  * `[data-rca-annotation="<id>"][data-rca-page-part="<index>"]` and its token
- * rects are `[data-rca-token="<id>"]`.
+ * rects are `[data-rca-token="<id>"]`; a highlight's are
+ * `[data-rca-highlight="<id>"][data-rca-page-part="<index>"]` and
+ * `[data-rca-highlight-token="<id>"]`. The helpers take the `kind` of what
+ * they measure (default `"annotation"`).
  */
+import { expect } from "@playwright/test";
 import type { Locator } from "@playwright/test";
 
 /** A rectangle in CSS px. */
 export type Rect = { left: number; top: number; width: number; height: number };
 
+/** Tolerance (px) of measured geometry. */
+export const GEOMETRY_TOLERANCE_PX = 1;
+
+/** Expects each edge and size of `actual` to be within a pixel of `expected`. */
+export function expectRectClose(actual: Rect, expected: Rect): void {
+  for (const key of ["left", "top", "width", "height"] as const) {
+    expect(Math.abs(actual[key] - expected[key])).toBeLessThanOrEqual(
+      GEOMETRY_TOLERANCE_PX
+    );
+  }
+}
+
 /** How often `settledScrollTop` samples, and how many equal samples it wants. */
 const SCROLL_SAMPLE_MS = 100;
 const SCROLL_STABLE_SAMPLES = 3;
+
+/** What a box is drawn for. */
+export type BoxKind = "annotation" | "highlight";
+
+const BOX_ATTRIBUTE: Record<BoxKind, string> = {
+  annotation: "data-rca-annotation",
+  highlight: "data-rca-highlight",
+};
+
+const TOKEN_ATTRIBUTE: Record<BoxKind, string> = {
+  annotation: "data-rca-token",
+  highlight: "data-rca-highlight-token",
+};
+
+/** The box something draws on a page. */
+export function box(
+  root: Locator,
+  id: string,
+  pageIndex: number,
+  kind: BoxKind = "annotation"
+): Locator {
+  return root.locator(
+    `[${BOX_ATTRIBUTE[kind]}="${id}"][data-rca-page-part="${pageIndex}"]`
+  );
+}
 
 /** The box an annotation draws on a page. */
 export function annotationBox(
@@ -20,46 +61,60 @@ export function annotationBox(
   id: string,
   pageIndex: number
 ): Locator {
-  return root.locator(
-    `[data-rca-annotation="${id}"][data-rca-page-part="${pageIndex}"]`
-  );
+  return box(root, id, pageIndex, "annotation");
 }
 
-/** The token rects an annotation draws on a page. */
-export function tokenRects(
+/** The box a highlight draws on a page. */
+export function highlightBox(
   root: Locator,
   id: string,
   pageIndex: number
 ): Locator {
-  return root.locator(`[data-rca-page="${pageIndex}"] [data-rca-token="${id}"]`);
+  return box(root, id, pageIndex, "highlight");
 }
 
-/** The box of annotation `id` on page `pageIndex`, relative to its canvas. */
+/** The token rects an annotation (or highlight) draws on a page. */
+export function tokenRects(
+  root: Locator,
+  id: string,
+  pageIndex: number,
+  kind: BoxKind = "annotation"
+): Locator {
+  return root.locator(
+    `[data-rca-page="${pageIndex}"] [${TOKEN_ATTRIBUTE[kind]}="${id}"]`
+  );
+}
+
+/** The box of `id` on page `pageIndex`, relative to its canvas. */
 export async function boxRelativeToCanvas(
   root: Locator,
   id: string,
-  pageIndex: number
+  pageIndex: number,
+  kind: BoxKind = "annotation"
 ): Promise<Rect> {
   const canvas = await pageCanvas(root, pageIndex).boundingBox();
-  const box = await annotationBox(root, id, pageIndex).boundingBox();
-  if (!canvas || !box) throw new Error(`no box for ${id} on page ${pageIndex}`);
+  const measured = await box(root, id, pageIndex, kind).boundingBox();
+  if (!canvas || !measured) {
+    throw new Error(`no box for ${id} on page ${pageIndex}`);
+  }
   return {
-    left: box.x - canvas.x,
-    top: box.y - canvas.y,
-    width: box.width,
-    height: box.height,
+    left: measured.x - canvas.x,
+    top: measured.y - canvas.y,
+    width: measured.width,
+    height: measured.height,
   };
 }
 
-/** The token rects of annotation `id` on a page, relative to its canvas. */
+/** The token rects of `id` on a page, relative to its canvas. */
 export async function tokenRectsRelativeToCanvas(
   root: Locator,
   id: string,
-  pageIndex: number
+  pageIndex: number,
+  kind: BoxKind = "annotation"
 ): Promise<Rect[]> {
   const canvas = await pageCanvas(root, pageIndex).boundingBox();
   if (!canvas) throw new Error(`page ${pageIndex} is not mounted`);
-  const rects = await tokenRects(root, id, pageIndex).evaluateAll((spans) =>
+  const rects = await tokenRects(root, id, pageIndex, kind).evaluateAll((spans) =>
     spans.map((span) => {
       const { x, y, width, height } = span.getBoundingClientRect();
       return { x, y, width, height };
@@ -80,7 +135,8 @@ export async function tokenRectsRelativeToCanvas(
 export async function boxInRootView(
   root: Locator,
   id: string,
-  pageIndex: number
+  pageIndex: number,
+  kind: BoxKind = "annotation"
 ): Promise<{
   top: number;
   bottom: number;
@@ -90,13 +146,11 @@ export async function boxInRootView(
   viewWidth: number;
 }> {
   return root.evaluate(
-    (el, [annotationId, part]) => {
+    (el, [boxId, part, attribute]) => {
       const box = Array.from(
         el.querySelectorAll(`[data-rca-page-part="${part}"]`)
-      ).find((candidate) =>
-        candidate.getAttribute("data-rca-annotation") === annotationId
-      );
-      if (!box) throw new Error(`no box for ${annotationId} on page ${part}`);
+      ).find((candidate) => candidate.getAttribute(attribute) === boxId);
+      if (!box) throw new Error(`no box for ${boxId} on page ${part}`);
       const view = el.getBoundingClientRect();
       const viewTop = view.top + el.clientTop;
       const viewLeft = view.left + el.clientLeft;
@@ -110,7 +164,7 @@ export async function boxInRootView(
         viewWidth: el.clientWidth,
       };
     },
-    [id, pageIndex] as const
+    [id, pageIndex, BOX_ATTRIBUTE[kind]] as const
   );
 }
 

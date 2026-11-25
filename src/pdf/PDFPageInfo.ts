@@ -4,7 +4,8 @@
  * `components/annotator/types/pdf.ts`, without `getAnnotationForBounds` /
  * `getFreeFormAnnotationForBounds` (the library builds drafts from
  * `getPageAnnotationJson`). `convertAnnotationTokensToText` moved here from
- * `components/annotator/utils.ts`.
+ * `components/annotator/utils.ts`. `getBoundsForTokens` no longer needs the
+ * page's `bounds` and returns undefined when no token qualifies.
  */
 import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
 
@@ -123,14 +124,13 @@ export class PDFPageInfo {
     };
   }
 
+  /**
+   * The box around those of `selected_tokens` that are on this page and are
+   * selectable; undefined when there are none. (A token index the page does
+   * not have is skipped. Unlike `getPageAnnotationJson` this does not need
+   * the page's `bounds`, which the loader does not set.)
+   */
   getBoundsForTokens(selected_tokens: TokenId[]): Optional<BoundingBox> {
-    /**
-     * Given a list of token ids and page ids, determine the bounding box
-     */
-    if (this.bounds === undefined) {
-      throw new Error("Unknown Page Bounds");
-    }
-
     const this_page_tokens = selected_tokens.filter(
       (token) => token.pageIndex === this.page.pageNumber - 1
     );
@@ -139,14 +139,17 @@ export class PDFPageInfo {
     const tokenBounds: BoundingBox[] = [];
     for (let i = 0; i < this_page_tokens.length; i++) {
       const token = this.tokens[this_page_tokens[i].tokenIndex];
-      if (!this.isSelectableToken(token, viewport.width, viewport.height))
+      if (
+        !token ||
+        !this.isSelectableToken(token, viewport.width, viewport.height)
+      )
         continue;
 
       tokenBounds.push(this.getTokenBounds(token));
     }
-    const bounds = spanningBound(tokenBounds);
+    if (tokenBounds.length === 0) return undefined;
 
-    return bounds;
+    return spanningBound(tokenBounds);
   }
 
   getScaledTokenBounds(t: PawlsToken): BoundingBox {

@@ -13,10 +13,11 @@
  * pending selection; and the three effects that scrolled on selection,
  * search and chat changes are gone (scrolling is driven by scroll requests).
  *
- * A scroll request for an annotation starts here: the viewport scrolls to
- * the target's first page with the request's behaviour (in a layout effect,
- * so it starts before the page's own effect scrolls to the box, which
- * replaces it), then the page completes the request.
+ * A scroll request for an annotation or a highlight starts here: the
+ * viewport scrolls to the page the target is drawn on first, with the
+ * request's behaviour (in a layout effect, so it starts before the page's
+ * own effect scrolls to the box, which replaces it), then the page completes
+ * the request.
  */
 import {
   useCallback,
@@ -52,6 +53,7 @@ import { PdfPage } from "./PdfPage";
 import type { RequestPageRender } from "./PdfPage";
 import { isRenderingCancelled } from "./PdfPageRenderer";
 import type { PdfPageRenderer } from "./PdfPageRenderer";
+import { scrollTargetPage } from "./scrollTargetPage";
 
 /** What the format's driver asks of the viewport. */
 export interface PdfViewportControls {
@@ -183,6 +185,7 @@ export function PdfViewport({
   const root = useRootElement();
   const keepMounted = useKeepMountedPages();
   const allAnnotations = useAllAnnotations();
+  const highlights = useHighlights();
   const { request } = useScrollRequest();
 
   // Shared debounce state for coordinated rendering
@@ -308,15 +311,18 @@ export function PdfViewport({
     return true;
   };
 
-  /* a scroll request for an annotation: scroll to its first page */
+  /* a scroll request: scroll to the page its target is drawn on first */
   useLayoutEffect(() => {
-    if (request?.target.kind !== "annotation") return;
-    const target = request.target;
-    const annotation = allAnnotations.find((a) => a.id === target.id);
-    const firstPage = annotation ? annotationPages(annotation)[0] : undefined;
+    if (!request) return;
+    const firstPage = scrollTargetPage(
+      request.target,
+      allAnnotations,
+      highlights,
+      pageInfos
+    );
     // The page scrolls to the box next; its scroll replaces this one, and
     // the request keeps the page mounted until then.
-    if (firstPage !== undefined) scrollToPage(firstPage, request.behavior);
+    if (firstPage !== null) scrollToPage(firstPage, request.behavior);
     // Keyed on the request only: one jump per request.
   }, [request]);
 

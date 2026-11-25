@@ -1,4 +1,9 @@
-import { highlightPages, isSpanHighlight } from "../highlights";
+import { TEXT_BLOCK_HIGHLIGHT_COLOR } from "../constants";
+import {
+  highlightColor,
+  highlightPages,
+  isSpanHighlight,
+} from "../highlights";
 import type { Highlight } from "../types";
 
 test("tokens highlight reports its pages in ascending order", () => {
@@ -30,6 +35,20 @@ test("keys that are not page indices are ignored", () => {
       },
     })
   ).toEqual([3]);
+});
+
+test("a tokens highlight also reports the pages it is given bounds for", () => {
+  const box = { top: 0, left: 0, right: 1, bottom: 1 };
+  expect(
+    highlightPages({
+      id: "h",
+      target: {
+        kind: "tokens",
+        tokensByPage: { 4: [1] },
+        boundsByPage: { 2: box, 4: box },
+      },
+    })
+  ).toEqual([2, 4]);
 });
 
 test("bounds highlight reports its pages", () => {
@@ -65,4 +84,23 @@ test("isSpanHighlight is true only for span targets", () => {
   expect(isSpanHighlight(span)).toBe(true);
   expect(isSpanHighlight(tokens)).toBe(false);
   expect(isSpanHighlight(bounds)).toBe(false);
+});
+
+test("highlightColor is the highlight's own safe colour", () => {
+  const target = { kind: "span", start: 0, end: 1 } as const;
+  expect(highlightColor({ id: "h", target, color: "#123456" })).toBe("#123456");
+  expect(highlightColor({ id: "h", target, color: "rgb(1, 2, 3)" })).toBe(
+    "rgb(1, 2, 3)"
+  );
+});
+
+test("highlightColor falls back to the default highlight colour", () => {
+  const target = { kind: "span", start: 0, end: 1 } as const;
+  expect(highlightColor({ id: "h", target })).toBe(TEXT_BLOCK_HIGHLIGHT_COLOR);
+  expect(highlightColor({ id: "h", target, color: "" })).toBe(
+    TEXT_BLOCK_HIGHLIGHT_COLOR
+  );
+  expect(highlightColor({ id: "h", target, color: "red; x: y" })).toBe(
+    TEXT_BLOCK_HIGHLIGHT_COLOR
+  );
 });

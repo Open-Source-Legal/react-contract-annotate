@@ -222,3 +222,41 @@ describe("PDFPageInfo", () => {
     });
   });
 });
+
+// Added: the highlight overlay boxes tokens on pages the loader builds
+// without `bounds`.
+describe("getBoundsForTokens on a page without bounds", () => {
+  const tokens = [
+    makeToken(10, 10, 20, 5, "Hello"),
+    makeToken(35, 10, 20, 5, "world"),
+  ];
+  const pageInfo = () => new PDFPageInfo(makeFakePageProxy(1), tokens, 1);
+
+  it("boxes the tokens it is given, padded", () => {
+    expect(
+      pageInfo().getBoundsForTokens([
+        { pageIndex: 0, tokenIndex: 0 },
+        { pageIndex: 0, tokenIndex: 1 },
+      ])
+    ).toEqual({ left: 7, top: 7, right: 58, bottom: 18 });
+  });
+
+  it("skips a token index the page does not have", () => {
+    expect(
+      pageInfo().getBoundsForTokens([
+        { pageIndex: 0, tokenIndex: 99 },
+        { pageIndex: 0, tokenIndex: 1 },
+      ])
+    ).toEqual({ left: 32, top: 7, right: 58, bottom: 18 });
+  });
+
+  it("is undefined when no token qualifies", () => {
+    expect(pageInfo().getBoundsForTokens([])).toBeUndefined();
+    expect(
+      pageInfo().getBoundsForTokens([{ pageIndex: 0, tokenIndex: 99 }])
+    ).toBeUndefined();
+    expect(
+      pageInfo().getBoundsForTokens([{ pageIndex: 3, tokenIndex: 0 }])
+    ).toBeUndefined();
+  });
+});

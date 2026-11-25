@@ -1,6 +1,7 @@
 /**
- * The highlighted tokens of an annotation on one page: one rounded,
- * low-opacity rect per token, `[data-rca-token="<owner id>"]`. Ported from
+ * The highlighted tokens of an annotation (or of a highlight) on one page:
+ * one rounded, low-opacity rect per token, `[data-rca-token="<owner id>"]`
+ * (`[data-rca-highlight-token="<owner id>"]` for a highlight). Ported from
  * OpenContracts' `SelectionTokenGroup`
  * (`annotator/display/components/SelectionTokenGroup.tsx`, 98286cabf) with
  * the same geometry: `left` / `top` / `width` / `height` are computed exactly
@@ -69,8 +70,14 @@ const SelectionBox = styled.span.attrs<SelectionBoxProps>((props) => ({
 `;
 
 export interface TokenGroupProps {
-  /** Id of the annotation the tokens belong to: the `data-rca-token` value. */
+  /** Id of the annotation or highlight the tokens belong to. */
   ownerId: string;
+  /**
+   * The attribute that carries `ownerId`: `data-rca-token` for an
+   * annotation's tokens (the default), `data-rca-highlight-token` for a
+   * highlight's, so the two cannot be mistaken for each other.
+   */
+  attribute?: "data-rca-token" | "data-rca-highlight-token";
   color?: string;
   hidden?: boolean;
   /** The page at the current zoom. */
@@ -81,6 +88,7 @@ export interface TokenGroupProps {
 
 export function TokenGroup({
   ownerId,
+  attribute = "data-rca-token",
   color,
   hidden,
   pageInfo,
@@ -98,7 +106,7 @@ export function TokenGroup({
         return (
           <SelectionBox
             key={i}
-            data-rca-token={ownerId}
+            {...{ [attribute]: ownerId }}
             $hidden={hidden}
             $highOpacity={highOpacity}
             $color={color ? color : undefined}

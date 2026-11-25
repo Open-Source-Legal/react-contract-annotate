@@ -1,7 +1,7 @@
 /**
- * The box of an annotation on one page: a translucent fill in the label's
- * colour, a halo while bounding boxes are shown, and the approved / rejected
- * glow. Ported from OpenContracts' `SelectionBoundary`
+ * The box of an annotation (or of a highlight) on one page: a translucent
+ * fill in its colour, a halo while bounding boxes are shown, and the approved
+ * / rejected glow. Ported from OpenContracts' `SelectionBoundary`
  * (`annotator/display/components/SelectionBoundary.tsx`, 98286cabf) with the
  * same geometry: `left` / `top` / `width` / `height` are computed exactly as
  * there.
@@ -11,7 +11,8 @@
  * registry, `scrollIntoView` and the `isCreatingAnnotation` gate are gone
  * (scrolling is driven by scroll requests and looks the box up under the
  * instance root); the static `id` is replaced by the caller's `data-*`
- * attributes; and the hard-coded `zIndex: 2` is `--rca-z-annotation`.
+ * attributes; and the hard-coded `zIndex: 2` is `--rca-z-annotation` (a
+ * caller can pass its own `zIndex`, as highlights do).
  */
 import { useRef } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
@@ -61,7 +62,11 @@ interface SelectionBoundaryProps {
   rejected?: boolean;
   /** `data-*` attributes set on the box element (the DOM contract). */
   dataAttributes?: Record<`data-${string}`, string>;
+  /** CSS `z-index` of the box. Default `var(--rca-z-annotation, 2)`. */
+  zIndex?: string;
 }
+
+const ANNOTATION_Z_INDEX_VALUE = `var(--rca-z-annotation, ${ANNOTATION_Z_INDEX})`;
 
 const BoundarySpan = styled.span.attrs<{
   $width: number;
@@ -71,6 +76,7 @@ const BoundarySpan = styled.span.attrs<{
   $bounds: BoundingBox;
   $backgroundColor: string;
   $boxShadow: string;
+  $zIndex: string;
   $approved?: boolean;
   $rejected?: boolean;
 }>((props) => ({
@@ -82,7 +88,7 @@ const BoundarySpan = styled.span.attrs<{
     height: `${Math.abs(props.$height)}px`,
     transform: `rotateY(${props.$rotateY}deg) rotateX(${props.$rotateX}deg)`,
     backgroundColor: props.$backgroundColor,
-    zIndex: `var(--rca-z-annotation, ${ANNOTATION_Z_INDEX})`,
+    zIndex: props.$zIndex,
     border: "none",
     boxShadow: props.$boxShadow,
     transformOrigin: "top left",
@@ -134,6 +140,7 @@ export function SelectionBoundary({
   approved,
   rejected,
   dataAttributes,
+  zIndex = ANNOTATION_Z_INDEX_VALUE,
 }: SelectionBoundaryProps) {
   /** Where the last press on the box happened, until its click. */
   const pressRef = useRef<{ x: number; y: number } | null>(null);
@@ -193,6 +200,7 @@ export function SelectionBoundary({
       $boxShadow={boxShadow}
       $backgroundColor={backgroundColor}
       $bounds={bounds}
+      $zIndex={zIndex}
       $approved={approved}
       $rejected={rejected}
       style={{

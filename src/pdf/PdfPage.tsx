@@ -10,30 +10,35 @@
  * at once and again through the viewport's shared, debounced render queue
  * (`onZoomRenderRequest`), as in OpenContracts.
  *
- * The page draws every visible token annotation that has bounds on it, once
- * its canvas has rendered. It also carries out the last step of a scroll
- * request for an annotation whose first page it is: once the box is under
- * the instance root, it scrolls it into view (`centreBox`) and completes the
- * request when that scroll has landed (the viewport has already started
- * scrolling to the page).
+ * The page draws every visible token annotation that has bounds on it, and
+ * the highlights (`HighlightOverlay`), once its canvas has rendered. It also
+ * carries out the last step of a scroll request for an annotation or a
+ * highlight first drawn on it: once the box is under the instance root, it
+ * scrolls it into view (`centreBox`) and completes the request when that
+ * scroll has landed (the viewport has already started scrolling to the
+ * page).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 
 import {
-  annotationPages,
+  useAllAnnotations,
+  useHighlights,
   useRootElement,
   useScrollRequest,
   useSetDocumentStatus,
   useVisibleAnnotations,
   useZoom,
 } from "../core/index";
-import type { TokenAnnotation } from "../core/index";
+import type { ScrollTarget, TokenAnnotation } from "../core/index";
 import { AnnotationBox } from "./AnnotationBox";
 import { centreBox } from "./centreBox";
+import { HighlightOverlay } from "./HighlightOverlay";
+import { usePdfPages } from "./loader";
 import { NativeLinkLayer } from "./NativeLinkLayer";
 import { isRenderingCancelled, PdfPageRenderer } from "./PdfPageRenderer";
 import type { PDFPageInfo } from "./PDFPageInfo";
+import { scrollTargetPage } from "./scrollTargetPage";
 
 /** Queues a zoom re-render of a page; see `PdfViewport`. */
 export type RequestPageRender = (
@@ -86,27 +91,35 @@ function toError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason));
 }
 
-/** The box annotation `id` draws on page `pageIndex`, under the root. */
+/** The attribute that carries the id of what a scroll target is drawn as. */
+const TARGET_ATTRIBUTE = {
+  annotation: "data-rca-annotation",
+  highlight: "data-rca-highlight",
+} as const;
+
+/** The box `target` draws on page `pageIndex`, under the root. */
 function findBox(
   root: HTMLElement,
-  id: string,
+  target: ScrollTarget,
   pageIndex: number
 ): HTMLElement | null {
+  const attribute = TARGET_ATTRIBUTE[target.kind];
   const parts = root.querySelectorAll<HTMLElement>(
     `[data-rca-page-part="${pageIndex}"]`
   );
   for (const part of Array.from(parts)) {
-    if (part.getAttribute("data-rca-annotation") === id) return part;
+    if (part.getAttribute(attribute) === target.id) return part;
   }
   return null;
 }
 
 /**
- * The page's part of a scroll request for an annotation: when the target's
- * first page is this one and the page draws it, scroll its box into view
- * with the request's behaviour as soon as it is under the root (retrying on
- * animation frames while the request is current), and complete the request
- * once that scroll has landed.
+ * The page's part of a scroll request: when the target's first drawn page is
+ * this one and the page draws it (an annotation that is visible; a highlight
+ * with a box here), scroll its box into view with the request's behaviour as
+ * soon as it is under the root (retrying on animation frames while the
+ * request is current), and complete the request once that scroll has landed.
+ * Annotations and highlights go the same way; only the box differs.
  */
 function useCentreScrollTarget(
   pageIndex: number,
@@ -114,23 +127,23 @@ function useCentreScrollTarget(
   rendered: boolean
 ): void {
   const root = useRootElement();
+  const pages = usePdfPages();
+  const annotations = useAllAnnotations();
+  const highlights = useHighlights();
   const { request, complete } = useScrollRequest();
   const target = request?.target;
-  const targetId =
-    target?.kind === "annotation" &&
-    drawn.some(
-      (a) => a.id === target.id && annotationPages(a)[0] === pageIndex
-    )
-      ? target.id
-      : null;
+  const owned =
+    target !== undefined &&
+    scrollTargetPage(target, annotations, highlights, pages) === pageIndex &&
+    (target.kind === "highlight" || drawn.some((a) => a.id === target.id));
 
   useEffect(() => {
-    if (!request || targetId === null || !rendered || !root) return;
-    const { seq, behavior } = request;
+    if (!request || !owned || !rendered || !root) return;
+    const { seq, behavior, target: requested } = request;
     let frame = 0;
     let stopWaiting = () => {};
     const attempt = () => {
-      const box = findBox(root, targetId, pageIndex);
+      const box = findBox(root, requested, pageIndex);
       if (!box) {
         frame = requestAnimationFrame(attempt);
         return;
@@ -144,7 +157,7 @@ function useCentreScrollTarget(
       cancelAnimationFrame(frame);
       stopWaiting();
     };
-  }, [request, targetId, rendered, root, pageIndex, complete]);
+  }, [request, owned, rendered, root, pageIndex, complete]);
 }
 
 export function PdfPage({
@@ -319,6 +332,7 @@ export function PdfPage({
         {hasPdfPageRendered && enableNativeLinks && (
           <NativeLinkLayer page={pageInfo.page} scale={zoomLevel} />
         )}
+        {hasPdfPageRendered && <HighlightOverlay pageInfo={scaledPageInfo} />}
         {hasPdfPageRendered &&
           drawn.map((annotation) => (
             <AnnotationBox
