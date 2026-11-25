@@ -494,13 +494,16 @@ during implementation; each is a defect in the OpenContracts renderer at
 - Selecting repeated text resolves to the occurrence the user selected, not
   the last one.
 
-**Overlap rule.** The DOCX engine cannot draw two spans that share a start or
-an end, or that partially overlap; it keeps one. The library's policy: user
-annotations, highlights and the pending selection take precedence over
-structural annotations, so a structural span that would suppress one of them
-is left out of the projection. Among non-structural spans the engine's choice
+**Overlap rule.** The DOCX engine (docxodus 12.4.1) draws only one of any
+two overlapping spans, strictly nested ones included. The library's policy:
+user annotations, highlights and the pending selection take precedence over
+structural annotations, so a structural span that overlaps one of them is
+left out of the projection. Among non-structural spans the engine's choice
 stands. `scrollToAnnotation` / `scrollToHighlight` resolve `false` promptly
-for a target the projection did not draw.
+for a target the projection did not draw. (An annotation hidden only by the
+display filters still counts as drawable, so `{ select: true }` can reveal
+it; without `select` such a scroll resolves `false` at the bounded timeout,
+on both formats.)
 
 **Isolation.** The converted document's own stylesheet is scoped to its
 viewer instance: it must not restyle the host page or another viewer, and
