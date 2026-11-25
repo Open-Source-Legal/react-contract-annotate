@@ -10,6 +10,7 @@ import { useMemo } from "react";
 
 import type { InternalAnnotation } from "../normalize";
 import type { Relation } from "../types";
+import { useAnnotatorStore } from "./AnnotatorProvider";
 import {
   annotationsAtom,
   displaySettingsAtom,
@@ -108,11 +109,14 @@ export function selectVisibleAnnotations({
 
 /** The visible annotations of the instance under the nearest provider. */
 export function useVisibleAnnotations(): InternalAnnotation[] {
-  const annotations = useAtomValue(annotationsAtom);
-  const relations = useAtomValue(relationsAtom);
-  const selectedAnnotationIds = useAtomValue(selectedAnnotationIdsAtom);
-  const selectedRelationIds = useAtomValue(selectedRelationIdsAtom);
-  const settings = useAtomValue(displaySettingsAtom);
+  const store = useAnnotatorStore("useVisibleAnnotations");
+  const annotations = useAtomValue(annotationsAtom, { store });
+  const relations = useAtomValue(relationsAtom, { store });
+  const selectedAnnotationIds = useAtomValue(selectedAnnotationIdsAtom, {
+    store,
+  });
+  const selectedRelationIds = useAtomValue(selectedRelationIdsAtom, { store });
+  const settings = useAtomValue(displaySettingsAtom, { store });
 
   return useMemo(
     () =>

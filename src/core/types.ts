@@ -138,6 +138,11 @@ export interface AnnotationLabel {
   icon?: string;
 }
 
+/**
+ * An annotation as the host passes it in. Annotation objects are treated as
+ * immutable: normalisation is memoised by object identity, so change an
+ * annotation by passing a new object, never by mutating one in place.
+ */
 export interface Annotation<TMeta = unknown> {
   id: string;
   annotationLabel: AnnotationLabel;

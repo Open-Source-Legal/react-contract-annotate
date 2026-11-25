@@ -11,11 +11,13 @@
  * so renderers and the imperative handle can write through
  * `useSetControllable` without knowing about props.
  */
-import { atom, useStore } from "jotai";
+import { atom } from "jotai";
 import type { PrimitiveAtom } from "jotai";
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
 import type { ChangeInfo } from "../types";
+import { useAnnotatorStore } from "./AnnotatorProvider";
+import type { AnnotatorStore } from "./AnnotatorProvider";
 import {
   activeHighlightIdAtom,
   selectedAnnotationIdsAtom,
@@ -43,10 +45,13 @@ type PerKey<V> = Readonly<Partial<Record<ControllableKey, V>>>;
 
 /** Where each bridged key currently reports to, if a hook has claimed it. */
 const bridgesAtom = atom<PerKey<Bridge>>(Object.freeze({}));
-/** The last value written with `{ source: "user" }`, per key. */
-const lastUserValuesAtom = atom<PerKey<unknown>>(Object.freeze({}));
 
-type Store = ReturnType<typeof useStore>;
+/** One write made with `{ source: "user" }`, numbered per key from 1. */
+type UserWrite = { readonly value: unknown; readonly version: number };
+/** The last user write, per key. */
+const lastUserWritesAtom = atom<PerKey<UserWrite>>(Object.freeze({}));
+
+type Store = AnnotatorStore;
 
 function setBridge(store: Store, key: ControllableKey, bridge: Bridge) {
   store.set(bridgesAtom, (prev) => {
@@ -80,13 +85,15 @@ export interface ControllableOptions<T> {
 
 /**
  * Call once per key, from the component that receives the props, under an
- * `AnnotatorProvider`.
+ * `AnnotatorProvider`. It seeds its atom during the first render, so it must
+ * be mounted exactly once per provider, in or above the component that
+ * renders the subscribers, and never remounted under a live provider.
  */
 export function useControllable<T>(
   key: ControllableKey,
   { value, defaultValue, onChange, equals = Object.is }: ControllableOptions<T>
 ): void {
-  const store = useStore();
+  const store = useAnnotatorStore("useControllable");
   const target = valueAtom<T>(key);
   const controlled = value !== undefined;
 
@@ -145,12 +152,15 @@ export function useControllable<T>(
 export function useSetControllable<T>(
   key: ControllableKey
 ): (next: T, info: ChangeInfo) => void {
-  const store = useStore();
+  const store = useAnnotatorStore("useSetControllable");
   return useCallback(
     (next, info) => {
       const bridge = store.get(bridgesAtom)[key];
       if (info.source === "user") {
-        store.set(lastUserValuesAtom, (prev) => ({ ...prev, [key]: next }));
+        store.set(lastUserWritesAtom, (prev) => ({
+          ...prev,
+          [key]: { value: next, version: (prev[key]?.version ?? 0) + 1 },
+        }));
       }
       if (!bridge?.controlled) store.set(valueAtom<T>(key), next);
       bridge?.notify(next, info);
@@ -163,15 +173,22 @@ export function useSetControllable<T>(
  * Read-only ref-like view of the last value written with
  * `{ source: "user" }` (undefined if none). It lets the host's echo of a user
  * change, arriving back as a prop, be told apart from an external change.
+ * `version` counts the user writes of the key (0 if none), so a caller can
+ * tell a new user write from one it has already seen even when the value is
+ * the same.
  */
 export function useLastUserValue<T>(key: ControllableKey): {
   readonly current: T | undefined;
+  readonly version: number;
 } {
-  const store = useStore();
+  const store = useAnnotatorStore("useLastUserValue");
   return useMemo(
     () => ({
       get current() {
-        return store.get(lastUserValuesAtom)[key] as T | undefined;
+        return store.get(lastUserWritesAtom)[key]?.value as T | undefined;
+      },
+      get version() {
+        return store.get(lastUserWritesAtom)[key]?.version ?? 0;
       },
     }),
     [store, key]

@@ -130,6 +130,20 @@ test("useLastUserValue records only source:'user' writes", () => {
   expect(ref.current).toBe(3);
 });
 
+test("useLastUserValue counts user writes, even of an equal value", () => {
+  const { result } = renderZoom({ value: undefined, defaultValue: 1 });
+  const ref = result.current.lastUser;
+  expect(ref.version).toBe(0);
+
+  act(() => result.current.set(2, USER));
+  act(() => result.current.set(5, API));
+  expect(ref.version).toBe(1);
+
+  act(() => result.current.set(2, USER));
+  expect(ref.version).toBe(2);
+  expect(ref.current).toBe(2);
+});
+
 test("useLastUserValue records user writes of a controlled key too", () => {
   const { result } = renderZoom({ value: 1.5, defaultValue: 1 });
   act(() => result.current.set(2, USER));

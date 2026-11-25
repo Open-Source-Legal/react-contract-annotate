@@ -122,6 +122,13 @@ export const COMPACT_JSON_MAX_TOTAL_TOKENS = 50_000;
 
 /** Zoom change per step of the zoom handle methods. */
 export const ZOOM_STEP = 0.1;
+/**
+ * Decimal places a stepped zoom is rounded to, so repeated steps do not
+ * accumulate floating-point noise (1.1 + 0.1 is 1.2000000000000002).
+ */
+export const ZOOM_DECIMALS = 6;
+/** Scroll behaviour of a scroll request that does not name one. */
+export const DEFAULT_SCROLL_BEHAVIOR: ScrollBehavior = "smooth";
 /** How long a bounded scroll request waits before settling `false`. */
 export const SCROLL_SETTLE_TIMEOUT_MS = 5000;
 /** Vertical gap (px) the PDF viewport adds below each page. */
@@ -132,3 +139,32 @@ export const PAGE_OVERSCAN = 2;
 export const LONG_PRESS_MS = 500;
 /** Touch movement (px) that cancels a pending long press. */
 export const TOUCH_MOVE_THRESHOLD_PX = 10;
+
+/**
+ * Defaults of the theming custom properties the shell defines on its root.
+ * Renderers read them as `var(--rca-…, <same default>)`.
+ */
+export const THEME_DEFAULTS = {
+  /** `--rca-font-family`: OpenContracts' body font stack (index.css). */
+  fontFamily:
+    '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", ' +
+    '"Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", ' +
+    "sans-serif",
+  /** `--rca-z-annotation`: OpenContracts' annotation box has `zIndex: 2`. */
+  zAnnotation: "2",
+  /**
+   * `--rca-z-highlight`: OpenContracts' result boundary sets no z-index, so
+   * highlights paint in document order (`auto`).
+   */
+  zHighlight: "auto",
+  /**
+   * `--rca-z-pending`: the pending selection is drawn by the same boundary
+   * component as an annotation, with the same `zIndex: 2`.
+   */
+  zPending: "2",
+  /**
+   * `--rca-structural-color`: OpenContracts has no colour of its own for
+   * structural annotations; this is its default label grey.
+   */
+  structuralColor: "#616a6b",
+} as const;
