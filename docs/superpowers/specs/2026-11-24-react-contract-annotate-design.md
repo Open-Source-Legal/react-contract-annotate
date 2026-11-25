@@ -255,6 +255,10 @@ interface AnnotatorCommonProps<TMeta = unknown> {
   onAnnotationHover?(a: Annotation<TMeta> | null): void;
   onOpenLink?(url: string, source: Annotation<TMeta> | "native"): void;
 
+  // host controls beside a label — nothing is rendered when absent
+  annotationActions?: AnnotationAction<TMeta>[];   // { id, label, icon?, onClick(a, e),
+                                                   //   isVisible?(a), isDisabled?(a) }
+
   // render slots — nothing is rendered when a slot is absent
   renderSelectionMenu?(ctx: SelectionMenuContext): React.ReactNode;
   renderAnnotationActions?(a: Annotation<TMeta>, ctx: { selected: boolean;
@@ -311,7 +315,11 @@ cancel. Removed: the built-in menu, its keyboard shortcuts, "copy link", the
 **Rendered annotations** show their box, token highlights and (per
 `labelDisplay`) a label chip with the label text. The radial action cloud,
 pencil, trash, approve/reject buttons and both modals are gone;
-`renderAnnotationActions` puts host content inside the chip.
+`annotationActions` (added after the first release of this design, at the
+owner's request) puts one button per host action inside the chip: the host
+names the action, its icon and what a click does, and the library draws the
+button and reports the click, which is not a click on the annotation.
+`renderAnnotationActions` puts any other host content after them.
 `approved` / `rejected` still change the box styling.
 
 **Clicks keep each format's current model** *(my call — this is an
@@ -477,7 +485,7 @@ extraction):*
 | Zoom | yes | yes — a scale factor; `"fit-width"` resolves to 1 |
 | `getText`, `findText`, `onAnnotationClick`, `onAnnotationHover` | yes | yes |
 | `labelDisplay` | yes | `"hide"` vs shown only; no hover mode |
-| `renderAnnotationActions` | yes | **no** — the DOCX label chip is a CSS `::before`, not an element |
+| `annotationActions`, `renderAnnotationActions` | yes, in every chip shown | yes, in a real chip laid over the CSS label of the annotation under the pointer and of each selected one (the CSS `::before` chip can hold no element) |
 | `approved` / `rejected` styling, SOURCE / TARGET badges | yes | **no** |
 | `linkUrl` click-to-open | yes | **no** |
 | `scrollToPage`, `getPageCount`, `getVisiblePageRange` | yes | returns `false` / `null` |

@@ -34,7 +34,6 @@ import {
   useNotifyDrawabilityChanged,
   useReadDocumentData,
   useRegisterFormatDriver,
-  useRenderAnnotationActions,
 } from "../core/index";
 import type {
   AnnotatorHandle,
@@ -96,9 +95,6 @@ function drawable(
 
 /** Development warnings: what DOCX accepts but does not draw. */
 const WARNINGS = {
-  annotationActions:
-    "renderAnnotationActions is not supported by the DOCX annotator (its " +
-    "label chip is a CSS ::before, not an element); it is ignored.",
   relationBadges:
     "The DOCX annotator shows the endpoints of selectedRelationIds but draws " +
     "no SOURCE / TARGET badges.",
@@ -121,10 +117,8 @@ function useUnsupportedWarnings(hasSelectedRelations: boolean): void {
   const warnOnce = useDevWarnOnce();
   const annotations = useAllAnnotations();
   const highlights = useHighlights();
-  const hasAnnotationActions = useRenderAnnotationActions() !== undefined;
 
   const found = {
-    annotationActions: hasAnnotationActions,
     relationBadges: hasSelectedRelations,
     reviewState: annotations.some((a) => a.approved || a.rejected),
     links: annotations.some((a) => Boolean(a.linkUrl)),

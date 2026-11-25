@@ -2,8 +2,8 @@
  * The demo page: a switch between two real documents (a PDF and a DOCX), a
  * switch between controlled and internal state, and the workspace around the
  * viewer. The page owns what the viewer never persists: the annotations a
- * reader makes are appended to page state, per document, and passed back down
- * as a new array.
+ * reader makes, and the ids of those the reader removes, are kept in page
+ * state, per document, and the viewer is given a new array.
  */
 import type {
   Annotation,
@@ -29,6 +29,7 @@ const MODES: { value: Mode; name: string }[] = [
 const UNLABELLED: AnnotationLabel = { id: "unlabelled", text: "Unlabelled" };
 
 const NO_ANNOTATIONS: Annotation[] = [];
+const NO_IDS: string[] = [];
 
 /** The annotation a host makes of a draft the viewer reports. */
 function annotationOf(draft: AnnotationDraft, id: string): Annotation {
@@ -47,6 +48,7 @@ export function App() {
   const [demo, setDemo] = useState<DemoDocument | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [created, setCreated] = useState<Record<string, Annotation[]>>({});
+  const [removed, setRemoved] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     let live = true;
@@ -77,6 +79,15 @@ export function App() {
           ],
         };
       }),
+    [source.id]
+  );
+
+  const onRemove = useCallback(
+    (annotationId: string) =>
+      setRemoved((all) => ({
+        ...all,
+        [source.id]: [...(all[source.id] ?? NO_IDS), annotationId],
+      })),
     [source.id]
   );
 
@@ -128,7 +139,9 @@ export function App() {
           demo={demo}
           mode={mode}
           created={created[demo.source.id] ?? NO_ANNOTATIONS}
+          removedIds={removed[demo.source.id] ?? NO_IDS}
           onCreate={onCreate}
+          onRemove={onRemove}
         />
       ) : (
         <p className="status">
@@ -140,7 +153,8 @@ export function App() {
       <footer className="colophon">
         <p>
           Drag across text to annotate it. Click an annotation to select it, or
-          pick one from the list to jump to it.
+          pick one from the list to jump to it. The buttons beside a label copy
+          the annotation’s text or remove it.
         </p>
         <p>
           The documents are model agreements published by the U.S. National

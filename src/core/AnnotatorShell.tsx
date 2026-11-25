@@ -48,6 +48,7 @@ import {
 import type { AnnotatorStore } from "./state/AnnotatorProvider";
 import {
   activeHighlightIdAtom,
+  annotationActionsAtom,
   annotationActionsSlotAtom,
   annotationsAtom,
   DEFAULT_DISPLAY_SETTINGS,
@@ -56,6 +57,7 @@ import {
   editingAtom,
   highlightsAtom,
   instanceIdAtom,
+  NO_ANNOTATION_ACTIONS,
   relationsAtom,
   rootElementAtom,
   selectedAnnotationIdsAtom,
@@ -70,6 +72,7 @@ import {
   useSetControllable,
 } from "./state/controllable";
 import type {
+  AnnotationAction,
   AnnotatorCommonProps,
   AnnotatorHandle,
   ChangeInfo,
@@ -299,6 +302,7 @@ function usePropSync<M>(
     readOnly = false,
     activeLabel = null,
     renderAnnotationActions,
+    annotationActions,
   } = common;
 
   useLayoutEffect(() => {
@@ -359,6 +363,15 @@ function usePropSync<M>(
         : { render: renderAnnotationActions }
     );
   }, [store, renderAnnotationActions]);
+
+  // So are the actions: new ones must re-draw the chips that show them.
+  useLayoutEffect(() => {
+    store.set(
+      annotationActionsAtom,
+      (annotationActions as AnnotationAction[] | undefined) ??
+        NO_ANNOTATION_ACTIONS
+    );
+  }, [store, annotationActions]);
 }
 
 // ---------------------------------------------------------------------------

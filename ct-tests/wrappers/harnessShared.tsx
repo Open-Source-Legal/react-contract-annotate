@@ -4,10 +4,11 @@
  * drafts into annotations as a host would, and render a minimal selection
  * menu.
  */
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import type {
   Annotation,
+  AnnotationAction,
   AnnotationDraft,
   AnnotationLabel,
   AnnotatorCommonProps,
@@ -115,5 +116,34 @@ export function renderMenu(ctx: SelectionMenuContext) {
         Apply
       </button>
     </div>
+  );
+}
+
+/**
+ * `annotationActions` of a harness: "edit" (an icon, `[data-harness-icon]`)
+ * and "remove" (text, not offered for structural annotations), each logging
+ * its click as `["action", <action id>, <annotation>]`.
+ */
+export function useLoggedActions(log: HarnessEvent[]): AnnotationAction[] {
+  return useMemo(
+    () => [
+      {
+        id: "edit",
+        label: "Edit",
+        icon: (
+          <svg data-harness-icon="" width="12" height="12" viewBox="0 0 12 12">
+            <rect width="12" height="12" fill="currentColor" />
+          </svg>
+        ),
+        onClick: (annotation) => log.push(["action", "edit", annotation]),
+      },
+      {
+        id: "remove",
+        label: "Remove",
+        onClick: (annotation) => log.push(["action", "remove", annotation]),
+        isVisible: (annotation) => !annotation.structural,
+      },
+    ],
+    [log]
   );
 }

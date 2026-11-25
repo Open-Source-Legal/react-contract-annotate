@@ -15,6 +15,7 @@ import { dropPendingSelection } from "./pending";
 import { useAnnotatorStore } from "./state/AnnotatorProvider";
 import {
   activeHighlightIdAtom,
+  annotationActionsAtom,
   annotationActionsSlotAtom,
   annotationsAtom,
   displaySettingsAtom,
@@ -29,6 +30,7 @@ import {
 import type { DisplaySettings, DocumentStatus } from "./state/atoms";
 import type {
   Annotation,
+  AnnotationAction,
   AnnotationLabel,
   AnnotatorCommonProps,
   Highlight,
@@ -176,6 +178,12 @@ export function useReadDocumentData(): () => {
 export function useSelectedRelations(): Relation[] {
   const store = useAnnotatorStore("useSelectedRelations");
   return useAtomValue(selectedRelationsAtom, { store });
+}
+
+/** The host's `annotationActions`, in its order; empty when not supplied. */
+export function useAnnotationActions(): readonly AnnotationAction[] {
+  const store = useAnnotatorStore("useAnnotationActions");
+  return useAtomValue(annotationActionsAtom, { store });
 }
 
 /** The host's `renderAnnotationActions` slot; undefined when not supplied. */

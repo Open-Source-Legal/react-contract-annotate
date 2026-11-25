@@ -50,6 +50,15 @@ export const ANNOTATION_FALLBACK_COLOR = "#FFEB3B";
 export const LABEL_CHIP_FONT_SIZE = "0.65em";
 export const LABEL_CHIP_Z_INDEX = 10;
 
+/**
+ * How long (ms) the chip with the host's controls stays once the pointer has
+ * left its annotation: long enough to move the pointer onto the chip.
+ */
+export const ACTION_CHIP_LINGER_MS = 300;
+/** The type of that chip: the PDF format's label chip's. */
+export const ACTION_CHIP_FONT_SIZE = "12px";
+export const ACTION_CHIP_FONT_WEIGHT = "bold";
+
 // ---------------------------------------------------------------------------
 // Library additions
 // ---------------------------------------------------------------------------

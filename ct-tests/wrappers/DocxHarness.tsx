@@ -50,6 +50,7 @@ import {
   eventLog,
   loggedCallbacks,
   renderMenu,
+  useLoggedActions,
   useHandleSetter,
 } from "./harnessShared";
 import type { CallbackName } from "./harnessShared";
@@ -62,6 +63,8 @@ export interface DocxHarnessProps {
   props?: Partial<DocxAnnotatorProps>;
   omitCallbacks?: CallbackName[];
   selectionMenu?: boolean;
+  /** Passes the `annotationActions` of `useLoggedActions`. */
+  actions?: boolean;
   addCreated?: boolean;
   /** Addresses the harness from the test; default `"default"`. */
   name?: string;
@@ -132,6 +135,7 @@ export function DocxHarness({
   props = {},
   omitCallbacks = [],
   selectionMenu = false,
+  actions = false,
   addCreated = false,
   name = DEFAULT_NAME,
 }: DocxHarnessProps) {
@@ -141,6 +145,7 @@ export function DocxHarness({
   // callbacks before any effect of this component runs.
   const [log] = useState(() => eventLog(name));
   const setHandle = useHandleSetter(name);
+  const loggedActions = useLoggedActions(log);
 
   const files = FIXTURES[fixture];
   useEffect(() => {
@@ -205,6 +210,7 @@ export function DocxHarness({
         wasmBaseUrl={DOCXODUS_WASM_URL}
         annotations={annotations}
         renderSelectionMenu={selectionMenu ? renderMenu : undefined}
+        annotationActions={actions ? loggedActions : undefined}
         {...props}
         {...controlled}
         {...loggedCallbacks(

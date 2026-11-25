@@ -263,7 +263,6 @@ test("unsupported inputs each warn once in development", async () => {
     ],
     highlights: [{ id: "h-b", target: { kind: "bounds", boundsByPage: {} } }],
     selectedRelationIds: ["r-1"],
-    renderAnnotationActions: () => null,
   });
   await load();
   rerender({});
@@ -272,10 +271,7 @@ test("unsupported inputs each warn once in development", async () => {
   });
 
   const messages = warnings();
-  expect(messages).toHaveLength(6);
-  expect(messages.some((m) => m.includes("renderAnnotationActions"))).toBe(
-    true
-  );
+  expect(messages).toHaveLength(5);
   expect(messages.some((m) => m.includes("SOURCE / TARGET"))).toBe(true);
   expect(messages.some((m) => m.includes("approved or rejected"))).toBe(true);
   expect(messages.some((m) => m.includes("linkUrl"))).toBe(true);
@@ -446,6 +442,194 @@ test("hovering an annotation reports it with the host's object; leaving reports 
   );
 
   expect(onAnnotationHover.mock.calls).toEqual([[D1], [null], [D2], [null]]);
+});
+
+describe("annotationActions", () => {
+  const chipOf = (container: HTMLElement, id: string) =>
+    container.querySelector<HTMLElement>(`[data-rca-docx-actions="${id}"]`);
+  const chips = (container: HTMLElement) =>
+    Array.from(
+      container.querySelectorAll<HTMLElement>("[data-rca-docx-actions]")
+    ).map((chip) => chip.getAttribute("data-rca-docx-actions"));
+  const part = (container: HTMLElement, id: string) =>
+    container.querySelector(
+      `${PAGES} [data-annotation-id="${id}"]`
+    ) as HTMLElement;
+  const scopeElement = (container: HTMLElement) =>
+    container.querySelector("[data-rca-docx]") as HTMLElement;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("the annotation under the pointer gets a chip with its label and the actions, outside the document's scope", async () => {
+    const { container } = setup({
+      annotationActions: [
+        { id: "edit", label: "Edit", icon: <svg data-icon="pen" />, onClick() {} },
+        { id: "delete", label: "Delete", onClick() {} },
+      ],
+    });
+    await load();
+    expect(chips(container)).toEqual([]);
+
+    fireEvent.mouseOver(part(container, "d-2"));
+
+    expect(chips(container)).toEqual(["d-2"]);
+    const chip = chipOf(container, "d-2")!;
+    expect(chip.textContent).toBe("ClauseDelete");
+    expect(
+      Array.from(chip.querySelectorAll("button")).map((button) => [
+        button.getAttribute("data-rca-annotation-action"),
+        button.getAttribute("aria-label"),
+      ])
+    ).toEqual([
+      ["edit", "Edit"],
+      ["delete", "Delete"],
+    ]);
+    expect(chip.querySelector("[data-icon='pen']")).not.toBeNull();
+    // The document's own stylesheet cannot reach it.
+    expect(scopeElement(container).contains(chip)).toBe(false);
+    expect(
+      container.querySelector("[data-rca-docx-frame]")?.contains(chip)
+    ).toBe(true);
+  });
+
+  test("the chip stays while the pointer goes to it and is on it, and goes a moment after the pointer left", async () => {
+    const { container } = setup({
+      annotationActions: [{ id: "delete", label: "Delete", onClick() {} }],
+    });
+    await load();
+    vi.useFakeTimers();
+
+    fireEvent.mouseOver(part(container, "d-1"));
+    fireEvent.mouseLeave(scopeElement(container));
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(chips(container)).toEqual(["d-1"]);
+
+    fireEvent.mouseEnter(chipOf(container, "d-1")!);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(chips(container)).toEqual(["d-1"]);
+
+    fireEvent.mouseLeave(chipOf(container, "d-1")!);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(chips(container)).toEqual([]);
+  });
+
+  test("the pointer moving to another annotation moves the chip at once", async () => {
+    const { container } = setup({
+      annotationActions: [{ id: "delete", label: "Delete", onClick() {} }],
+    });
+    await load();
+
+    fireEvent.mouseOver(part(container, "d-1"));
+    fireEvent.mouseOver(part(container, "d-2"));
+
+    expect(chips(container)).toEqual(["d-2"]);
+  });
+
+  test("selected annotations have their chips without the pointer", async () => {
+    const { container, handle } = setup({
+      annotationActions: [{ id: "delete", label: "Delete", onClick() {} }],
+    });
+    await load();
+
+    act(() => handle().selectAnnotations(["d-1", "d-2"], { scroll: false }));
+    expect(chips(container)).toEqual(["d-1", "d-2"]);
+
+    fireEvent.mouseOver(part(container, "d-2"));
+    expect(chips(container)).toEqual(["d-1", "d-2"]);
+
+    act(() => handle().clearSelection());
+    expect(chips(container)).toEqual(["d-2"]);
+  });
+
+  test("a click calls the action with the host's annotation; it is not a click on the annotation and selects nothing", async () => {
+    const onClick = vi.fn();
+    const onAnnotationClick = vi.fn();
+    const onSelectionChange = vi.fn();
+    const { container } = setup({
+      annotationActions: [{ id: "delete", label: "Delete", onClick }],
+      onAnnotationClick,
+      onSelectionChange,
+    });
+    await load();
+    fireEvent.mouseOver(part(container, "d-1"));
+
+    const button = chipOf(container, "d-1")!.querySelector("button")!;
+    fireEvent.mouseDown(button);
+    fireEvent.mouseUp(button);
+    fireEvent.click(button);
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onClick.mock.calls[0][0]).toBe(D1);
+    expect(onAnnotationClick).not.toHaveBeenCalled();
+    expect(onSelectionChange).not.toHaveBeenCalled();
+  });
+
+  test("an annotation no action is offered for gets no chip; nor does any with labelDisplay hide", async () => {
+    const annotationActions = [
+      {
+        id: "delete",
+        label: "Delete",
+        onClick() {},
+        isVisible: (a: Annotation) => a.id !== "d-1",
+      },
+    ];
+    const { container, rerender } = setup({ annotationActions });
+    await load();
+
+    fireEvent.mouseOver(part(container, "d-1"));
+    expect(chips(container)).toEqual([]);
+    fireEvent.mouseOver(part(container, "d-2"));
+    expect(chips(container)).toEqual(["d-2"]);
+
+    rerender({ annotationActions, labelDisplay: "hide" });
+    await act(async () => {
+      await flushPromises();
+    });
+    fireEvent.mouseOver(part(container, "d-2"));
+    expect(chips(container)).toEqual([]);
+  });
+
+  test("renderAnnotationActions content is in the chip too, after the buttons, with {selected, hovered}", async () => {
+    const renderAnnotationActions = vi.fn(
+      (a: Annotation, ctx: { selected: boolean; hovered: boolean }) => (
+        <i data-actions-for={a.id}>
+          {`${ctx.selected ? "selected" : "unselected"} ${
+            ctx.hovered ? "hovered" : "not-hovered"
+          }`}
+        </i>
+      )
+    );
+    const { container, handle } = setup({ renderAnnotationActions });
+    await load();
+
+    fireEvent.mouseOver(part(container, "d-1"));
+    expect(chipOf(container, "d-1")?.textContent).toBe(
+      "Clauseunselected hovered"
+    );
+    expect(renderAnnotationActions.mock.calls.at(-1)?.[0]).toBe(D1);
+
+    act(() => handle().selectAnnotations(["d-2"], { scroll: false }));
+    expect(chipOf(container, "d-2")?.textContent).toBe(
+      "Clauseselected not-hovered"
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test("without actions or the slot there is no chip element", async () => {
+    const { container, handle } = setup();
+    await load();
+    fireEvent.mouseOver(part(container, "d-1"));
+    act(() => handle().selectAnnotations(["d-2"], { scroll: false }));
+    expect(chips(container)).toEqual([]);
+  });
 });
 
 /** The selector of each style rule a browser parses out of `css`, at any depth. */

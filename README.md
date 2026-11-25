@@ -7,7 +7,8 @@ It renders a document with annotations on top and exposes an API to drive it. It
 ships **no controls**: no toolbar, zoom buttons, label picker, sidebar, menus or
 modals. Your application supplies its own UI and talks to the viewer through
 props, callbacks, render slots and a `ref` handle. Nothing is rendered beyond
-the document, its annotations and highlights unless you supply a render slot.
+the document, its annotations and highlights unless you supply a render slot or
+your own [buttons beside the labels](#controls-beside-a-label).
 The library never fetches annotations and never persists anything: it reports a
 selection and you decide what to do with it.
 
@@ -217,6 +218,7 @@ normalisation is memoised by object identity.
 | Display | `showStructural`, `showStructuralRelationships`, `showSelectedOnly`, `showBoundingBoxes`, `labelDisplay` (`"always" \| "hover" \| "hide"`), `visibleLabelIds` (`null`, `undefined` or `[]` = no filter), `scrollOnSelect` |
 | Creating | `readOnly`, `activeLabel`, `onCreateAnnotation(draft)`, `onTextSelect(pending, actions)` |
 | Interaction | `onAnnotationClick`, `onAnnotationHover`, `onOpenLink(url, source)` |
+| Controls on annotations | `annotationActions` (see [Controls beside a label](#controls-beside-a-label)) |
 | Slots | `renderSelectionMenu`, `renderAnnotationActions`, `renderLoading`, `renderError` |
 | Lifecycle | `onDocumentLoad({ pageCount, text })`, `onError`, `onVisiblePagesChange`, `className`, `style` |
 
@@ -362,6 +364,84 @@ selection is viewer-level state, so it survives its page leaving the virtual
 window; shift-drag regions on different pages merge into one multipage draft.
 PDF also supports multi-region selection and long-press selection on touch.
 
+## Controls beside a label
+
+`annotationActions` is an array of your own controls for an annotation, such as
+edit, delete or approve. Each is `{ id, label, icon?, onClick(annotation, event),
+isVisible?(annotation), isDisabled?(annotation) }`. The library draws one button
+per action beside the annotation's label, in the array's order, and calls
+`onClick` with your own annotation object; what the action does is yours.
+
+```tsx
+import { DocumentAnnotator } from "@os-legal/react-contract-annotate";
+import type {
+  Annotation,
+  AnnotationAction,
+  DocumentInput,
+} from "@os-legal/react-contract-annotate";
+import { useMemo } from "react";
+
+export function Reviewable({
+  document,
+  annotations,
+  onEdit,
+  onDelete,
+}: {
+  document: DocumentInput;
+  annotations: Annotation[];
+  onEdit(annotation: Annotation): void;
+  onDelete(id: string): void;
+}) {
+  // The same array while the actions are the same.
+  const actions = useMemo<AnnotationAction[]>(
+    () => [
+      {
+        id: "edit",
+        label: "Edit",
+        icon: <span aria-hidden="true">✎</span>,
+        onClick: (annotation) => onEdit(annotation),
+      },
+      {
+        id: "delete",
+        label: "Delete",
+        icon: <span aria-hidden="true">✕</span>,
+        onClick: (annotation) => onDelete(annotation.id),
+        // Not offered for the document's own structure.
+        isVisible: (annotation) => !annotation.structural,
+      },
+    ],
+    [onEdit, onDelete]
+  );
+  return (
+    <DocumentAnnotator
+      document={document}
+      annotations={annotations}
+      annotationActions={actions}
+    />
+  );
+}
+```
+
+- **`icon`** is any React node (an icon component, an `<svg>`, text) and is drawn
+  in the label's text colour; without one the button shows `label`. `label` is
+  always the button's accessible name and tooltip.
+- **`isVisible`** leaves an action out for an annotation; **`isDisabled`** draws
+  it greyed and unclickable. An annotation no action is offered for gets no
+  buttons.
+- **When they show.** The buttons are part of the label chip, so `labelDisplay`
+  decides: `"hover"` (the default) shows them for the annotation under the
+  pointer and for selected ones, `"always"` for every annotation, `"hide"`
+  never. On a DOCX the labels themselves are always drawn, and the buttons come
+  in a chip over the label of the annotation under the pointer and of each
+  selected one.
+- **Clicks.** A click on a button is not a click on the annotation: it fires no
+  `onAnnotationClick`, changes no selection and starts no text selection.
+- **Identity.** The array is compared by identity, like the other inputs. Keep
+  it stable (`useMemo`) or every label is drawn again on each of your renders.
+- Each button is `button[data-rca-annotation-action="<id>"]`, for your own CSS.
+  `renderAnnotationActions(annotation, { selected, hovered })` remains for
+  content that is not a button; it is drawn after the buttons.
+
 ## Clicks, selection and links
 
 Each format keeps its own click model:
@@ -408,7 +488,7 @@ TARGET badges on PDF); then `showSelectedOnly`, `showStructural` and the
 | Zoom | yes | yes: a scale factor; `"fit-width"` resolves to 1 |
 | `getText`, `findText`, `onAnnotationClick`, `onAnnotationHover` | yes | yes |
 | `labelDisplay` | yes | `"hide"` or shown only; no hover mode |
-| `renderAnnotationActions` | yes | **no** (the DOCX label chip is a CSS `::before`, not an element) |
+| `annotationActions`, `renderAnnotationActions` | yes: in every label chip that is shown | yes: in a chip over the label of the annotation under the pointer and of each selected one |
 | `approved` / `rejected` styling, SOURCE / TARGET badges | yes | **no** |
 | `linkUrl` click-to-open | yes | **no** |
 | `scrollToPage`, `getPageCount`, `getVisiblePageRange` | yes | returns `false` / `null` |

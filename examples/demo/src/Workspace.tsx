@@ -2,7 +2,8 @@
  * One document in the viewer with the demo's controls around it. The controls
  * are plain HTML outside the viewer: the library ships none. They drive it
  * through its handle (zoom, jump, search) and through props (what to show,
- * which labels, which relationship), and every callback it fires is logged.
+ * which labels, which relationship, the buttons beside a label), and every
+ * callback it fires is logged.
  *
  * In "controlled" mode this component owns the zoom, the selection and the
  * active search hit and passes them as props, applying each change the viewer
@@ -13,6 +14,7 @@
 import { DocumentAnnotator } from "@os-legal/react-contract-annotate";
 import type {
   Annotation,
+  AnnotationAction,
   AnnotationDraft,
   AnnotatorHandle,
   Highlight,
@@ -23,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DemoDocument } from "./documents";
 import { useEventLog } from "./eventLog";
+import { CopyIcon, TrashIcon } from "./icons";
 import { SelectionMenu } from "./SelectionMenu";
 import { Sidebar } from "./Sidebar";
 import { preview } from "./text";
@@ -34,7 +37,10 @@ interface WorkspaceProps {
   mode: Mode;
   /** The annotations the reader has made so far, owned by the page. */
   created: Annotation[];
+  /** The ids of the annotations the reader has removed. */
+  removedIds: string[];
   onCreate(draft: AnnotationDraft): void;
+  onRemove(annotationId: string): void;
 }
 
 /** The zoom a controlled viewer starts at (an internal one fits the width). */
@@ -52,7 +58,14 @@ function pageRange([first, last]: [number, number], count: number): string {
   return `${pages} of ${count}`;
 }
 
-export function Workspace({ demo, mode, created, onCreate }: WorkspaceProps) {
+export function Workspace({
+  demo,
+  mode,
+  created,
+  removedIds,
+  onCreate,
+  onRemove,
+}: WorkspaceProps) {
   const handle = useRef<AnnotatorHandle>(null);
   const { events, log } = useEventLog();
   const isPdf = demo.source.format === "pdf";
@@ -79,8 +92,39 @@ export function Workspace({ demo, mode, created, onCreate }: WorkspaceProps) {
 
   // One array per change: the viewer treats annotations as immutable inputs.
   const annotations = useMemo(
-    () => [...demo.annotations, ...created],
-    [demo.annotations, created]
+    () =>
+      [...demo.annotations, ...created].filter(
+        (annotation) => !removedIds.includes(annotation.id)
+      ),
+    [demo.annotations, created, removedIds]
+  );
+
+  // The buttons beside every annotation's label. The same array while
+  // nothing they use changes, so the labels are not drawn again for nothing.
+  const annotationActions = useMemo<AnnotationAction[]>(
+    () => [
+      {
+        id: "copy",
+        label: "Copy text",
+        icon: <CopyIcon />,
+        onClick: (annotation) => {
+          void navigator.clipboard?.writeText(annotation.rawText ?? "");
+          log("annotationActions copy", annotation.id);
+        },
+      },
+      {
+        id: "remove",
+        label: "Remove",
+        icon: <TrashIcon />,
+        // The document's own structure is not the reader's to remove.
+        isVisible: (annotation) => !annotation.structural,
+        onClick: (annotation) => {
+          onRemove(annotation.id);
+          log("annotationActions remove", annotation.id);
+        },
+      },
+    ],
+    [log, onRemove]
   );
 
   // `null` shows every label; otherwise the ids left checked.
@@ -269,6 +313,7 @@ export function Workspace({ demo, mode, created, onCreate }: WorkspaceProps) {
             showStructural={showStructural}
             labelDisplay={labelDisplay}
             visibleLabelIds={visibleLabelIds}
+            annotationActions={annotationActions}
             {...controlled}
             renderSelectionMenu={(context) => (
               <SelectionMenu labels={demo.labels} {...context} />

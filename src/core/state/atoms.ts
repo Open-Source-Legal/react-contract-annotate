@@ -12,6 +12,7 @@ import { atom } from "jotai";
 
 import type { InternalAnnotation } from "../normalize";
 import type {
+  AnnotationAction,
   AnnotationLabel,
   AnnotatorCommonProps,
   Highlight,
@@ -106,6 +107,16 @@ export const displaySettingsAtom = atom<DisplaySettings>(
 export const annotationActionsSlotAtom = atom<{
   render: AnnotatorCommonProps["renderAnnotationActions"];
 }>(Object.freeze({ render: undefined }));
+
+/** What `annotationActionsAtom` holds while the host supplies no actions. */
+export const NO_ANNOTATION_ACTIONS: readonly AnnotationAction[] = Object.freeze(
+  []
+);
+
+/** The host's `annotationActions`. */
+export const annotationActionsAtom = atom<readonly AnnotationAction[]>(
+  NO_ANNOTATION_ACTIONS
+);
 
 // ---------------------------------------------------------------------------
 // Editing, DOM and document status
