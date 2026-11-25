@@ -319,8 +319,16 @@ drag-selecting text under an annotation; structural annotations cover every
 paragraph):*
 
 - PDF: Shift-click (or Ctrl/Cmd-click) toggles the annotation in the
-  selection. A plain press passes through to the selection layer, which
-  starts a text selection and clears the current annotation selection.
+  selection. A plain press passes through to the selection layer and *arms* a
+  text selection; nothing changes until the pointer moves past a small drag
+  tolerance. A drag then clears the current annotation selection and any
+  pending selection and selects text. A click without a drag on a blank part
+  of the page clears the annotation selection and any pending selection; a
+  click without a drag on an annotation or highlight box clears nothing.
+  *(Amended during implementation: in OpenContracts the press itself started
+  the selection, which with no built-in menu would turn every click on a word
+  into a one-word annotation whenever `activeLabel` is set, and would make
+  clicking a highlight deselect annotations.)*
 - DOCX: plain click replaces the selection, Ctrl/Cmd-click toggles, a click
   on empty text clears.
 - `onAnnotationClick` fires for *every* click that lands on an annotation
