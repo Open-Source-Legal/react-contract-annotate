@@ -1,10 +1,16 @@
 /**
- * One mounted PDF page: its canvas and render lifecycle, the native link
- * layer and the annotation boxes. Ported from OpenContracts' `PDFPage`
- * (`renderers/pdf/PDFPage.tsx`, 98286cabf) without its selection layer and
+ * One mounted PDF page: its canvas and render lifecycle, the selection
+ * layer, the native link layer and the annotation boxes. Ported from
+ * OpenContracts' `PDFPage` (`renderers/pdf/PDFPage.tsx`, 98286cabf) without
  * its search / chat / text-block results, and without the initial
  * fit-to-width zoom, which the format's driver resolves for the shell
  * (`resolveFitWidth`).
+ *
+ * The selection layer is the canvas wrapper, with the canvas and the other
+ * layers inside it, so presses on the boxes that they let through reach it
+ * (see `SelectionLayer`). Like the boxes, it gets the page at the current
+ * zoom (OpenContracts' `updatedPageInfo`); the drafts it builds need no page
+ * `bounds`.
  *
  * The first render happens on mount; later zoom changes re-render the page
  * at once and again through the viewport's shared, debounced render queue
@@ -39,6 +45,7 @@ import { NativeLinkLayer } from "./NativeLinkLayer";
 import { isRenderingCancelled, PdfPageRenderer } from "./PdfPageRenderer";
 import type { PDFPageInfo } from "./PDFPageInfo";
 import { scrollTargetPage } from "./scrollTargetPage";
+import { SelectionLayer } from "./SelectionLayer";
 
 /** Queues a zoom re-render of a page; see `PdfViewport`. */
 export type RequestPageRender = (
@@ -63,15 +70,6 @@ const PageAnnotationsContainer = styled.div`
     width: auto;
     justify-content: flex-start;
   }
-`;
-
-/**
- * This wrapper is inline-block (shrink-wrapped) and position:relative
- * so that absolutely-positioned elements inside it match the canvas.
- */
-const CanvasWrapper = styled.div`
-  position: relative;
-  display: inline-block;
 `;
 
 // No max-width, so the canvas can exceed its parent's width.
@@ -174,7 +172,7 @@ export function PdfPage({
   const pageNumber = pageInfo.page.pageNumber;
   const pageIndex = pageNumber - 1;
 
-  /* the page's tokens at the current zoom, for the boxes */
+  /* the page's tokens at the current zoom, for the boxes and the selection */
   const scaledPageInfo = useMemo(
     () => pageInfo.withScale(zoomLevel),
     [pageInfo, zoomLevel]
@@ -327,7 +325,7 @@ export function PdfPage({
 
   return (
     <PageAnnotationsContainer ref={pageContainerRef} data-rca-page={pageIndex}>
-      <CanvasWrapper>
+      <SelectionLayer pageInfo={scaledPageInfo}>
         <PageCanvas ref={canvasRef} />
         {hasPdfPageRendered && enableNativeLinks && (
           <NativeLinkLayer page={pageInfo.page} scale={zoomLevel} />
@@ -341,7 +339,7 @@ export function PdfPage({
               pageInfo={scaledPageInfo}
             />
           ))}
-      </CanvasWrapper>
+      </SelectionLayer>
     </PageAnnotationsContainer>
   );
 }

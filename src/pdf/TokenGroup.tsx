@@ -70,14 +70,23 @@ const SelectionBox = styled.span.attrs<SelectionBoxProps>((props) => ({
 `;
 
 export interface TokenGroupProps {
-  /** Id of the annotation or highlight the tokens belong to. */
+  /**
+   * Id of the annotation or highlight the tokens belong to; empty for the
+   * selection being made or pending, which has none.
+   */
   ownerId: string;
   /**
    * The attribute that carries `ownerId`: `data-rca-token` for an
    * annotation's tokens (the default), `data-rca-highlight-token` for a
-   * highlight's, so the two cannot be mistaken for each other.
+   * highlight's, `data-rca-pending-token` for the pending selection's and
+   * `data-rca-drag-token` for those of a selection being made, so none can be
+   * mistaken for another.
    */
-  attribute?: "data-rca-token" | "data-rca-highlight-token";
+  attribute?:
+    | "data-rca-token"
+    | "data-rca-highlight-token"
+    | "data-rca-pending-token"
+    | "data-rca-drag-token";
   color?: string;
   hidden?: boolean;
   /** The page at the current zoom. */

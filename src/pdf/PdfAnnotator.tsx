@@ -1,9 +1,10 @@
 /**
  * The PDF annotator: `AnnotatorShell` with the PDF format inside. The format
  * loads the document (`usePdfDocument`), holds its pages and provides them
- * to its components (`PdfPagesContext`), lays them out in the virtualised
- * viewport and registers the driver the shell answers the format half of the
- * handle with.
+ * to its components (`PdfPagesContext`), holds the text-selection gesture
+ * shared by its pages (`PdfDragProvider`), lays the pages out in the
+ * virtualised viewport and registers the driver the shell answers the format
+ * half of the handle with.
  */
 import { forwardRef, useLayoutEffect, useMemo, useRef } from "react";
 import type { ForwardedRef, ReactElement, RefAttributes } from "react";
@@ -23,6 +24,7 @@ import type {
   PawlsInput,
   PdfAnnotatorProps,
 } from "../core/index";
+import { PdfDragProvider } from "./dragState";
 import { PdfPagesContext, usePdfDocument } from "./loader";
 import type { PdfSource } from "./loader";
 import type { PDFPageInfo } from "./PDFPageInfo";
@@ -155,11 +157,13 @@ function PdfFormat({
 
   return (
     <PdfPagesContext.Provider value={pages}>
-      <PdfViewport
-        controlsRef={viewport}
-        onVisiblePagesChange={onVisiblePagesChange}
-        enableNativeLinks={enableNativeLinks !== false}
-      />
+      <PdfDragProvider pages={pages}>
+        <PdfViewport
+          controlsRef={viewport}
+          onVisiblePagesChange={onVisiblePagesChange}
+          enableNativeLinks={enableNativeLinks !== false}
+        />
+      </PdfDragProvider>
     </PdfPagesContext.Provider>
   );
 }

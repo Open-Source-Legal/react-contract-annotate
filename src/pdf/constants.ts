@@ -16,16 +16,32 @@
  */
 export const PAGE_SPANNING_TOKEN_THRESHOLD = 0.9;
 
-/** Stacking order of the per-page overlay layers. */
+/**
+ * Stacking order of the per-page overlay layers. (OpenContracts' full-page
+ * `PDF_SELECTION_LAYER: 1` overlay is gone: the selection layer is the
+ * page's canvas wrapper, see `SelectionLayer`.)
+ */
 export const Z_INDEX = {
-  /** PDF page SelectionLayer: full-page overlay capturing the mouse for
-   *  drag-to-select. Sits above the rendered canvas. */
-  PDF_SELECTION_LAYER: 1,
   /** PDF page NativeLinkLayer: anchors over pdf.js external-link
-   *  annotations. Must sit above `PDF_SELECTION_LAYER` so its
+   *  annotations, above the canvas and the pending selection, so its
    *  `pointer-events: auto` anchors receive clicks first. */
   PDF_NATIVE_LINK_LAYER: 2,
 } as const;
+
+/**
+ * Colour of a selection being made or pending when no label colours it
+ * (OpenContracts' `SelectionLayer` literal `"#0066cc"`).
+ */
+export const SELECTION_COLOR = "#0066cc";
+/** Touch hold (ms) that starts a text selection (`LONG_PRESS_DURATION`). */
+export const LONG_PRESS_MS = 500;
+/**
+ * Touch movement (px) that cancels a pending long press
+ * (`TOUCH_MOVE_THRESHOLD`).
+ */
+export const TOUCH_MOVE_THRESHOLD_PX = 10;
+/** Haptic pulse (ms) when a long press starts a selection. */
+export const LONG_PRESS_VIBRATION_MS = 50;
 
 // Annotation visual styling
 /** RGB tuple for the rejected (maroon) state. */
@@ -64,6 +80,13 @@ export const ANNOTATION_Z_INDEX = 2;
  * document order, below the annotation boxes.
  */
 export const HIGHLIGHT_Z_INDEX = "auto";
+
+/**
+ * Stacking of the pending selection and of a selection being made: the
+ * fallback of `--rca-z-pending`. OpenContracts draws them with the
+ * annotation's boundary, `zIndex: 2`.
+ */
+export const PENDING_Z_INDEX = 2;
 
 /**
  * Text of the bar above an annotation box that holds the label chip
@@ -110,3 +133,5 @@ export const SCROLL_LANDED_TOLERANCE_PX = 1;
  * as landed when no `scrollend` arrives (browsers without it).
  */
 export const SCROLL_SETTLE_FRAMES = 10;
+/** `KeyboardEvent.key` of the key that cancels a selection being made. */
+export const ESCAPE_KEY = "Escape";

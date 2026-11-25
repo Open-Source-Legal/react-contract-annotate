@@ -17,6 +17,11 @@
  * - `omitCallbacks` names callback props the harness does not pass at all
  *   (neither logged nor from `props`), for tests of the behaviour without
  *   them.
+ * - `selectionMenu` passes a `renderSelectionMenu` (a test cannot pass a
+ *   render function): `[data-harness-menu]` with an Apply button,
+ *   `[data-harness-apply]`, that commits the pending selection.
+ * - `addCreated` does what a host does with `onCreateAnnotation`: each draft
+ *   is added to the annotations it passes, as `created-<n>` (n from 1).
  *
  * The fixture's relations are always passed.
  *
@@ -30,10 +35,13 @@ import type { CSSProperties } from "react";
 
 import type {
   Annotation,
+  AnnotationDraft,
+  AnnotationLabel,
   AnnotatorHandle,
   PawlsInput,
   PdfAnnotatorProps,
   Relation,
+  SelectionMenuContext,
 } from "../../src/core/index";
 import { PdfAnnotator } from "../../src/pdf/index";
 import type { HarnessEvent } from "../helpers/harness";
@@ -46,6 +54,8 @@ export interface PdfHarnessProps {
   fixture?: "eton" | "usc";
   props?: Partial<PdfAnnotatorProps>;
   omitCallbacks?: CallbackName[];
+  selectionMenu?: boolean;
+  addCreated?: boolean;
   /** Addresses the harness from the test; default `"default"`. */
   name?: string;
 }
@@ -54,6 +64,11 @@ const DEFAULT_NAME = "default";
 const SIZE: CSSProperties = { width: 900, height: 700, flex: "none" };
 const CONTROLLED_DEFAULT_ZOOM = 1;
 const NO_IDS: string[] = [];
+/** The label of a created annotation whose draft has none. */
+const CREATED_LABEL: AnnotationLabel = Object.freeze({
+  id: "l-created",
+  text: "Created",
+});
 
 const FIXTURES = {
   eton: {
@@ -145,6 +160,31 @@ function pickAnnotations(
   );
 }
 
+/** The annotation a host makes of the `n`th created draft. */
+function createdAnnotation(draft: AnnotationDraft, n: number): Annotation {
+  return {
+    id: `created-${n}`,
+    annotationLabel: draft.annotationLabel ?? CREATED_LABEL,
+    rawText: draft.rawText,
+    page: draft.page,
+    json: draft.json,
+  };
+}
+
+function renderMenu(ctx: SelectionMenuContext) {
+  return (
+    <div data-harness-menu="">
+      <button
+        type="button"
+        data-harness-apply=""
+        onClick={() => ctx.commit()}
+      >
+        Apply
+      </button>
+    </div>
+  );
+}
+
 export function PdfHarness({
   mode = "uncontrolled",
   annotationIds,
@@ -153,10 +193,13 @@ export function PdfHarness({
   fixture = "eton",
   props = {},
   omitCallbacks = [],
+  selectionMenu = false,
+  addCreated = false,
   name = DEFAULT_NAME,
 }: PdfHarnessProps) {
   const files = FIXTURES[fixture];
   const [data, setData] = useState<FixtureData | null>(null);
+  const [created, setCreated] = useState<Annotation[]>([]);
   // Created during the first render: the annotator's own effects can fire
   // callbacks before any effect of this component runs.
   const [log] = useState(() => eventLog(name));
@@ -185,9 +228,27 @@ export function PdfHarness({
 
   // Memoised: annotations with `linkUrls` applied are new objects, and a new
   // annotation object on every render would be renormalised every render.
+  // Created annotations come after the fixture's.
   const annotations = useMemo(
-    () => pickAnnotations(data?.annotations ?? [], annotationIds, linkUrls),
-    [data, annotationIds, linkUrls]
+    () => [
+      ...pickAnnotations(data?.annotations ?? [], annotationIds, linkUrls),
+      ...created,
+    ],
+    [data, annotationIds, linkUrls, created]
+  );
+
+  const ownCreate = props.onCreateAnnotation;
+  const onCreateAnnotation = useCallback(
+    (draft: AnnotationDraft) => {
+      if (addCreated) {
+        setCreated((prev) => [
+          ...prev,
+          createdAnnotation(draft, prev.length + 1),
+        ]);
+      }
+      return ownCreate?.(draft);
+    },
+    [addCreated, ownCreate]
   );
 
   if (!data) return <div data-harness={name} style={SIZE} />;
@@ -209,9 +270,14 @@ export function PdfHarness({
         pawls={data.pawls}
         annotations={annotations}
         relations={data.relations}
+        renderSelectionMenu={selectionMenu ? renderMenu : undefined}
         {...props}
         {...controlled}
-        {...loggedCallbacks(log, props, omitCallbacks)}
+        {...loggedCallbacks(
+          log,
+          { ...props, onCreateAnnotation },
+          omitCallbacks
+        )}
       />
     </div>
   );

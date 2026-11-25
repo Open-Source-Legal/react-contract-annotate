@@ -10,7 +10,8 @@
  * every click that was not a drag (`onClickWithoutDrag`); the annotation-ref
  * registry, `scrollIntoView` and the `isCreatingAnnotation` gate are gone
  * (scrolling is driven by scroll requests and looks the box up under the
- * instance root); the static `id` is replaced by the caller's `data-*`
+ * instance root; a box that must not take the pointer says so with
+ * `passive`); the static `id` is replaced by the caller's `data-*`
  * attributes; and the hard-coded `zIndex: 2` is `--rca-z-annotation` (a
  * caller can pass its own `zIndex`, as highlights do).
  */
@@ -64,6 +65,12 @@ interface SelectionBoundaryProps {
   dataAttributes?: Record<`data-${string}`, string>;
   /** CSS `z-index` of the box. Default `var(--rca-z-annotation, 2)`. */
   zIndex?: string;
+  /**
+   * When true the box takes no pointer events, so what is under it stays
+   * reachable (a selection being made or pending; OpenContracts gated this
+   * on `isCreatingAnnotation`). Default false.
+   */
+  passive?: boolean;
 }
 
 const ANNOTATION_Z_INDEX_VALUE = `var(--rca-z-annotation, ${ANNOTATION_Z_INDEX})`;
@@ -141,6 +148,7 @@ export function SelectionBoundary({
   rejected,
   dataAttributes,
   zIndex = ANNOTATION_Z_INDEX_VALUE,
+  passive = false,
 }: SelectionBoundaryProps) {
   /** Where the last press on the box happened, until its click. */
   const pressRef = useRef<{ x: number; y: number } | null>(null);
@@ -204,7 +212,7 @@ export function SelectionBoundary({
       $approved={approved}
       $rejected={rejected}
       style={{
-        pointerEvents: "auto",
+        pointerEvents: passive ? "none" : "auto",
         cursor: clickThroughOnPlainClick ? "pointer" : undefined,
       }}
     >

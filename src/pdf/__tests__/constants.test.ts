@@ -2,7 +2,12 @@ import * as C from "../constants";
 
 test("ported values match OpenContracts", () => {
   expect(C.PAGE_SPANNING_TOKEN_THRESHOLD).toBe(0.9);
-  expect(C.Z_INDEX).toEqual({ PDF_SELECTION_LAYER: 1, PDF_NATIVE_LINK_LAYER: 2 });
+  expect(C.Z_INDEX).toEqual({ PDF_NATIVE_LINK_LAYER: 2 });
+  expect(C.SELECTION_COLOR).toBe("#0066cc");
+  expect(C.LONG_PRESS_MS).toBe(500);
+  expect(C.TOUCH_MOVE_THRESHOLD_PX).toBe(10);
+  expect(C.LONG_PRESS_VIBRATION_MS).toBe(50);
+  expect(C.PENDING_Z_INDEX).toBe(2);
   expect(C.REJECTED_RGB).toEqual({ r: 128, g: 0, b: 0 });
   expect(C.APPROVED_RGB).toEqual({ r: 46, g: 204, b: 113 });
   expect(C.ANNOTATION_BOUNDARY_RADIUS).toBe("6px");
@@ -28,6 +33,7 @@ test("library additions", () => {
   expect(C.CLICK_DRAG_TOLERANCE_PX).toBe(3);
   expect(C.SCROLL_LANDED_TOLERANCE_PX).toBe(1);
   expect(C.SCROLL_SETTLE_FRAMES).toBe(10);
+  expect(C.ESCAPE_KEY).toBe("Escape");
 });
 
 test("highlight boxes paint in document order unless the host raises them", () => {

@@ -9,8 +9,9 @@
  * Changed from OpenContracts: the scroll container is the annotator's root
  * (`useRootElement`) instead of `scrollContainerRefAtom`; the window is
  * stretched to keep mounted the pages of every selected annotation, of the
- * active highlight, of the pending scroll request's target and of the
- * pending selection; and the three effects that scrolled on selection,
+ * active highlight, of the pending scroll request's target, of the pending
+ * selection and of the selection being made (its drag and the regions kept
+ * with Shift); and the three effects that scrolled on selection,
  * search and chat changes are gone (scrolling is driven by scroll requests).
  *
  * A scroll request for an annotation or a highlight starts here: the
@@ -48,6 +49,7 @@ import {
   PAGE_OVERSCAN,
   PAGE_RENDER_DEBOUNCE_MS,
 } from "./constants";
+import { usePdfDragPages } from "./dragState";
 import { usePdfPages } from "./loader";
 import { PdfPage } from "./PdfPage";
 import type { RequestPageRender } from "./PdfPage";
@@ -137,7 +139,9 @@ function computePageWindow(
 /**
  * Pages that stay mounted whatever the scroll position: those of every
  * selected annotation, of the active highlight, of the pending scroll
- * request's target and of the pending selection. Ascending, no duplicates.
+ * request's target, of the pending selection and of the selection being made
+ * (the page of its drag, so its document listeners live until the release,
+ * and those of its kept regions). Ascending, no duplicates.
  */
 function useKeepMountedPages(): number[] {
   const selectedIds = useSelectedAnnotationIds();
@@ -146,6 +150,7 @@ function useKeepMountedPages(): number[] {
   const activeHighlightId = useActiveHighlightId();
   const { request } = useScrollRequest();
   const pending = usePendingSelection();
+  const dragPages = usePdfDragPages();
   const target = request?.target ?? null;
 
   return useMemo(() => {
@@ -164,6 +169,7 @@ function useKeepMountedPages(): number[] {
     if (target?.kind === "annotation") addAnnotation(target.id);
     if (target?.kind === "highlight") addHighlight(target.id);
     if (pending) draftPages(pending.json).forEach((p) => pages.add(p));
+    dragPages.forEach((p) => pages.add(p));
     return [...pages].sort((a, b) => a - b);
   }, [
     selectedIds,
@@ -172,6 +178,7 @@ function useKeepMountedPages(): number[] {
     activeHighlightId,
     target,
     pending,
+    dragPages,
   ]);
 }
 

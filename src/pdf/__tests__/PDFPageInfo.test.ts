@@ -260,3 +260,37 @@ describe("getBoundsForTokens on a page without bounds", () => {
     ).toBeUndefined();
   });
 });
+
+// Added: text selection builds drafts on the pages the loader builds without
+// `bounds`; the selection is in the page's coordinates at its scale.
+describe("getPageAnnotationJson on a page without bounds", () => {
+  const tokens = [
+    makeToken(10, 10, 20, 5, "Hello"),
+    makeToken(35, 10, 20, 5, "world"),
+    makeToken(10, 30, 20, 5, "again"),
+  ];
+  /** Overlaps "Hello" and "world" at scale 1. */
+  const SELECTION: BoundingBox = { left: 12, top: 11, right: 50, bottom: 14 };
+
+  it.each([1, 1.5])(
+    "selects the same tokens at scale %s, with unscaled bounds",
+    (scale) => {
+      const pageInfo = new PDFPageInfo(makeFakePageProxy(1), tokens, scale);
+      const atScale: BoundingBox = {
+        left: SELECTION.left * scale,
+        top: SELECTION.top * scale,
+        right: SELECTION.right * scale,
+        bottom: SELECTION.bottom * scale,
+      };
+
+      expect(pageInfo.getPageAnnotationJson([atScale])).toEqual({
+        bounds: { left: 7, top: 7, right: 58, bottom: 18 },
+        tokensJsons: [
+          { pageIndex: 0, tokenIndex: 0 },
+          { pageIndex: 0, tokenIndex: 1 },
+        ],
+        rawText: "Hello world",
+      });
+    }
+  );
+});

@@ -4,8 +4,10 @@
  * `components/annotator/types/pdf.ts`, without `getAnnotationForBounds` /
  * `getFreeFormAnnotationForBounds` (the library builds drafts from
  * `getPageAnnotationJson`). `convertAnnotationTokensToText` moved here from
- * `components/annotator/utils.ts`. `getBoundsForTokens` no longer needs the
- * page's `bounds` and returns undefined when no token qualifies.
+ * `components/annotator/utils.ts`. Neither `getPageAnnotationJson` nor
+ * `getBoundsForTokens` needs the page's `bounds` (OpenContracts guarded on
+ * them but never read them; the loader builds pages without), and
+ * `getBoundsForTokens` returns undefined when no token qualifies.
  */
 import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
 
@@ -76,10 +78,12 @@ export class PDFPageInfo {
     return true;
   }
 
+  /**
+   * The tokens of this page that overlap any of `selections` (rectangles in
+   * the page's coordinates at this page's `scale`), with their unscaled
+   * spanning box and text; no tokens, an empty box and text, when none does.
+   */
   getPageAnnotationJson(selections: BoundingBox[]): SinglePageAnnotationJson {
-    if (this.bounds === undefined) {
-      throw new Error("Unknown Page Bounds");
-    }
     const viewport = this.viewport;
     const ids: TokenId[] = [];
     const tokenBounds: BoundingBox[] = [];
@@ -127,8 +131,7 @@ export class PDFPageInfo {
   /**
    * The box around those of `selected_tokens` that are on this page and are
    * selectable; undefined when there are none. (A token index the page does
-   * not have is skipped. Unlike `getPageAnnotationJson` this does not need
-   * the page's `bounds`, which the loader does not set.)
+   * not have is skipped.)
    */
   getBoundsForTokens(selected_tokens: TokenId[]): Optional<BoundingBox> {
     const this_page_tokens = selected_tokens.filter(

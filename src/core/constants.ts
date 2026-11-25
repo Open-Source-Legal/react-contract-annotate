@@ -110,10 +110,6 @@ export const DEFAULT_SCROLL_BEHAVIOR: ScrollBehavior = "smooth";
 export const DOCUMENT_ERROR_MESSAGE = "The document could not be loaded.";
 /** How long a bounded scroll request waits before settling `false`. */
 export const SCROLL_SETTLE_TIMEOUT_MS = 5000;
-/** Touch hold (ms) that starts a text selection. */
-export const LONG_PRESS_MS = 500;
-/** Touch movement (px) that cancels a pending long press. */
-export const TOUCH_MOVE_THRESHOLD_PX = 10;
 /** `KeyboardEvent.key` of the key that cancels a pending selection. */
 export const ESCAPE_KEY = "Escape";
 
