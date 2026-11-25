@@ -8,13 +8,14 @@
  * format registers (see `format.ts`).
  */
 import { useAtomValue } from "jotai";
-import type { PrimitiveAtom } from "jotai";
+import type { Atom, PrimitiveAtom } from "jotai";
 import {
   useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
 } from "react";
 import type { CSSProperties, MutableRefObject, ReactNode, Ref } from "react";
@@ -28,7 +29,11 @@ import {
   ZOOM_STEP,
 } from "./constants";
 import { shallowEqualArrays, shallowEqualObjects } from "./equality";
-import { fitWidthVersionAtom, formatDriverAtom } from "./format";
+import {
+  drawabilityVersionAtom,
+  fitWidthVersionAtom,
+  formatDriverAtom,
+} from "./format";
 import { normalizeAnnotations } from "./normalize";
 import { cancelScrollRequest, useRequestScroll } from "./scroll";
 import type { ScrollTarget } from "./scroll";
@@ -109,30 +114,52 @@ const ROOT_STYLE = Object.freeze({
 }) as CSSProperties;
 
 /**
- * A selection or active highlight the handle wrote whose arrival must not
- * raise the scroll request a change normally raises: `selectAnnotations` with
- * `{ scroll: false }`, and the select / activate step of `scrollTo…`, which
- * raises its own bounded request. Consumed by the next change handled.
+ * One write the handle made whose arrival must not raise the scroll request a
+ * change normally raises: `selectAnnotations` with `{ scroll: false }`, and
+ * the select / activate step of `scrollTo…`, which raises its own bounded
+ * request. It lives until the commit after the write (`dueTick`): the handle
+ * forces that commit, so a host that applies the write synchronously has it
+ * in the store by then, and a write the host declines (or echoes as an equal
+ * value the bridge drops) cannot silence a later, unrelated change. The cost:
+ * a host that applies it asynchronously gets the scroll anyway.
  */
-type QuietWrite<T> = { value: T } | null;
+type QuietWrite<T> = { value: T; dueTick: number } | null;
+type QuietSlot<T> = MutableRefObject<QuietWrite<T>>;
 type QuietWrites = {
-  selection: MutableRefObject<QuietWrite<string[]>>;
-  highlight: MutableRefObject<QuietWrite<string | null>>;
+  selection: QuietSlot<string[]>;
+  highlight: QuietSlot<string | null>;
+  /** Records a quiet write in `slot` and forces the commit that expires it. */
+  mark<T>(slot: QuietSlot<T>, value: T): void;
 };
 
 function ShellBody<M>({ common, handleRef, children }: AnnotatorShellProps<M>) {
   const store = useAnnotatorStore("AnnotatorShell");
-  const quiet: QuietWrites = {
-    selection: useRef<QuietWrite<string[]>>(null),
-    highlight: useRef<QuietWrite<string | null>>(null),
-  };
+  const [tick, forceCommit] = useReducer((n: number) => n + 1, 0);
+  const committedTick = useRef(tick);
+  useLayoutEffect(() => {
+    committedTick.current = tick;
+  });
+  const selectionSlot = useRef<QuietWrite<string[]>>(null);
+  const highlightSlot = useRef<QuietWrite<string | null>>(null);
+  const quiet = useMemo<QuietWrites>(
+    () => ({
+      selection: selectionSlot,
+      highlight: highlightSlot,
+      mark(slot, value) {
+        slot.current = { value, dueTick: committedTick.current + 1 };
+        forceCommit();
+      },
+    }),
+    []
+  );
 
   useBridgedState(store, common);
   usePropSync(store, common);
   const applyZoom = useApplyZoom(store);
   useInitialFitWidth(store, applyZoom);
-  useSelectionScroll(store, common.scrollOnSelect ?? true, quiet.selection);
-  useHighlightScroll(store, quiet.highlight);
+  const scrollOnSelect = common.scrollOnSelect ?? true;
+  useSelectionScroll(store, tick, scrollOnSelect, selectionSlot);
+  useHighlightScroll(store, tick, highlightSlot);
   useDocumentLifecycle(store, common);
 
   const handle = useHandle(store, applyZoom, quiet);
@@ -405,68 +432,113 @@ function useDocumentLifecycle<M>(
 
 type ChangeScroll<T> = {
   key: "selection" | "activeHighlight";
-  /** The bridged value as the store holds it now. */
-  value: T;
-  /** What to scroll to for this value; null when there is nothing. */
-  target: ScrollTarget | null;
-  /** Whether the target's id is in the document data yet. */
-  present: boolean;
+  kind: ScrollTarget["kind"];
+  /** The bridged value. */
+  valueAtom: Atom<T>;
+  /** The id to scroll to for a value; null when there is nothing. */
+  idOf: (value: T) => string | null;
+  /** The document data the id must appear in before the change is handled. */
+  dataAtom: Atom<readonly { id: string }[]>;
   equals: (a: T, b: T) => boolean;
   /** Whether a change may raise a request; read when the change is handled. */
   enabled: boolean;
-  quiet: MutableRefObject<QuietWrite<T>>;
+  quiet: QuietSlot<T>;
 };
 
 /**
  * Raises one unbounded request per change of a bridged value, once the
  * document is ready and the target exists. A value present when the document
- * finishes loading counts as a change (the deep-link case); one whose target
- * is not in the data yet waits for it. A change is not scrolled to when it is
- * the host echoing back a user change, when the handle wrote it quietly, or
- * when `enabled` is off.
+ * finishes loading counts as a change (the deep-link case). A change is not
+ * scrolled to when it is the host echoing back a user change, when the handle
+ * wrote it quietly, or when `enabled` is off. A change still waiting (its id
+ * not in the data yet, or not drawable yet) is not consumed; it is looked at
+ * again after every commit, and the subscriptions below make every input
+ * that matters commit.
+ *
+ * The decision reads the store at effect time rather than this render's
+ * values: a controlled value lands in the store during the commit (the
+ * bridge's layout effect), after this render read it, and a quiet write must
+ * be matched in that same commit.
  */
 function useScrollOnChange<T>(
   store: AnnotatorStore,
-  { key, value, target, present, equals, enabled, quiet }: ChangeScroll<T>
+  tick: number,
+  {
+    key,
+    kind,
+    valueAtom,
+    idOf,
+    dataAtom,
+    equals,
+    enabled,
+    quiet,
+  }: ChangeScroll<T>
 ): void {
-  const ready = useAtomValue(documentStatusAtom, { store }).state === "ready";
-  const driver = useAtomValue(formatDriverAtom, { store });
+  useAtomValue(valueAtom, { store });
+  useAtomValue(dataAtom, { store });
+  useAtomValue(documentStatusAtom, { store });
+  useAtomValue(formatDriverAtom, { store });
+  useAtomValue(drawabilityVersionAtom, { store });
   const lastUser = useLastUserValue<T>(key);
   const requestScroll = useRequestScroll();
 
-  const latest = useRef({ target, equals, enabled });
+  const latest = useRef({ equals, enabled });
   useLayoutEffect(() => {
-    latest.current = { target, equals, enabled };
+    latest.current = { equals, enabled };
   });
   /** The value last handled; null until one is, and again after a reload. */
   const handled = useRef<{ value: T } | null>(null);
   /** The user-write version already accounted for. */
   const seenUserVersion = useRef(0);
 
-  const targetId = target?.id ?? null;
   useEffect(() => {
-    if (!ready) {
-      handled.current = null;
-      return;
+    const marker = quiet.current;
+    const { equals: same, enabled: allowed } = latest.current;
+
+    /** Handles a pending change; true when it used the quiet marker. */
+    const handleChange = (): boolean => {
+      if (store.get(documentStatusAtom).state !== "ready") {
+        handled.current = null;
+        return false;
+      }
+      const driver = store.get(formatDriverAtom);
+      if (!driver) return false;
+      const value = store.get(valueAtom);
+      if (handled.current && Object.is(handled.current.value, value)) {
+        return false;
+      }
+      const id = idOf(value);
+      if (id !== null && !store.get(dataAtom).some((item) => item.id === id)) {
+        return false; // wait for the id to arrive
+      }
+
+      // An echo may arrive late (an async host), so a user write stays
+      // eligible until the next change is handled. The trade-off: a host that
+      // declines a user write and later sets the same value itself gets no
+      // scroll for it.
+      const userVersion = lastUser.version;
+      const userEcho =
+        userVersion !== seenUserVersion.current &&
+        same(lastUser.current as T, value);
+      seenUserVersion.current = userVersion;
+      const quietWrite = marker !== null && same(marker.value, value);
+
+      if (id === null || userEcho || quietWrite || !allowed) {
+        handled.current = { value };
+        return quietWrite;
+      }
+      const target: ScrollTarget = { kind, id };
+      if (!driver.canDraw(target)) return false; // ask again later
+      handled.current = { value };
+      void requestScroll(target);
+      return false;
+    };
+
+    const used = handleChange();
+    if (marker !== null && quiet.current === marker) {
+      if (used || tick >= marker.dueTick) quiet.current = null;
     }
-    if (!driver) return;
-    if (handled.current && Object.is(handled.current.value, value)) return;
-    if (targetId !== null && !present) return;
-    handled.current = { value };
-
-    const { target: current, equals: same, enabled: allowed } = latest.current;
-    const userVersion = lastUser.version;
-    const userEcho =
-      userVersion !== seenUserVersion.current &&
-      same(lastUser.current as T, value);
-    seenUserVersion.current = userVersion;
-    const quietWrite =
-      quiet.current !== null && same(quiet.current.value, value);
-    quiet.current = null;
-
-    if (!current || userEcho || quietWrite || !allowed) return;
-    if (driver.canDraw(current)) void requestScroll(current);
-  }, [ready, driver, value, targetId, present, lastUser, quiet, requestScroll]);
+  });
 }
 
 /**
@@ -476,47 +548,46 @@ function useScrollOnChange<T>(
  */
 function useSelectionScroll(
   store: AnnotatorStore,
+  tick: number,
   scrollOnSelect: boolean,
-  quiet: MutableRefObject<QuietWrite<string[]>>
+  quiet: QuietSlot<string[]>
 ): void {
-  const selection = useAtomValue(selectedAnnotationIdsAtom, { store });
-  const annotations = useAtomValue(annotationsAtom, { store });
-  const firstId = selection[0] ?? null;
-  const present = useMemo(
-    () => firstId !== null && annotations.some((a) => a.id === firstId),
-    [annotations, firstId]
-  );
-  useScrollOnChange(store, {
+  useScrollOnChange(store, tick, {
     key: "selection",
-    value: selection,
-    target: firstId === null ? null : { kind: "annotation", id: firstId },
-    present,
+    kind: "annotation",
+    valueAtom: selectedAnnotationIdsAtom,
+    idOf: firstSelectedId,
+    dataAtom: annotationsAtom,
     equals: shallowEqualArrays,
     enabled: scrollOnSelect,
     quiet,
   });
 }
 
+function firstSelectedId(ids: string[]): string | null {
+  return ids[0] ?? null;
+}
+
 /** Scroll to the active highlight when it changes (spec rule 3). */
 function useHighlightScroll(
   store: AnnotatorStore,
-  quiet: MutableRefObject<QuietWrite<string | null>>
+  tick: number,
+  quiet: QuietSlot<string | null>
 ): void {
-  const activeId = useAtomValue(activeHighlightIdAtom, { store });
-  const highlights = useAtomValue(highlightsAtom, { store });
-  const present = useMemo(
-    () => activeId !== null && highlights.some((h) => h.id === activeId),
-    [highlights, activeId]
-  );
-  useScrollOnChange(store, {
+  useScrollOnChange(store, tick, {
     key: "activeHighlight",
-    value: activeId,
-    target: activeId === null ? null : { kind: "highlight", id: activeId },
-    present,
+    kind: "highlight",
+    valueAtom: activeHighlightIdAtom,
+    idOf: activeId,
+    dataAtom: highlightsAtom,
     equals: Object.is,
     enabled: true,
     quiet,
   });
+}
+
+function activeId(id: string | null): string | null {
+  return id;
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +632,7 @@ function useHandle(
         const target: ScrollTarget = { kind: "annotation", id };
         if (!drawable(target)) return Promise.resolve(false);
         if (opts.select) {
-          quiet.selection.current = { value: [id] };
+          quiet.mark(quiet.selection, [id]);
           setSelection([id], API);
         }
         return requestScroll(target, {
@@ -574,7 +645,7 @@ function useHandle(
         const target: ScrollTarget = { kind: "highlight", id };
         if (!drawable(target)) return Promise.resolve(false);
         if (opts.activate) {
-          quiet.highlight.current = { value: id };
+          quiet.mark(quiet.highlight, id);
           setActiveHighlight(id, API);
         }
         return requestScroll(target, {
@@ -607,10 +678,14 @@ function useHandle(
       getSelectedAnnotationIds: () => [...store.get(selectedAnnotationIdsAtom)],
       selectAnnotations(ids, opts = {}) {
         const next = [...ids];
-        if (opts.scroll === false) quiet.selection.current = { value: next };
+        if (opts.scroll === false) quiet.mark(quiet.selection, next);
+        else quiet.selection.current = null;
         setSelection(next, API);
       },
-      clearSelection: () => setSelection([], API),
+      clearSelection() {
+        quiet.selection.current = null;
+        setSelection([], API);
+      },
 
       ...noPendingSelection,
 
@@ -623,8 +698,7 @@ function useHandle(
   }, [
     store,
     applyZoom,
-    quiet.selection,
-    quiet.highlight,
+    quiet,
     setSelection,
     setActiveHighlight,
     requestScroll,

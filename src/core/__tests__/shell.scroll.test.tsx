@@ -1,5 +1,11 @@
 import { act, render } from "@testing-library/react";
-import { createRef, StrictMode, useState } from "react";
+import {
+  createRef,
+  StrictMode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type { AnnotatorCommonProps, AnnotatorHandle } from "../types";
 import {
@@ -9,6 +15,7 @@ import {
   annotation,
   createRecorder,
   highlight,
+  settle,
 } from "./fakeFormat";
 import type { FakeFormatProps, FakeRecorder } from "./fakeFormat";
 
@@ -140,6 +147,99 @@ test("controlled: {scroll:false} holds when the host echoes the change back", ()
   act(() => api().handle().selectAnnotations(["a1"], { scroll: false }));
   expect(api().handle().getSelectedAnnotationIds()).toEqual(["a1"]);
   expect(recorder.requests).toEqual([]);
+});
+
+test("a scroll-wanted selectAnnotations right after a quiet one raises its request", () => {
+  const { handle, recorder } = setup();
+  act(() => {
+    handle().selectAnnotations(["a1"], { scroll: false });
+    handle().selectAnnotations(["a1"]);
+  });
+  expect(targets(recorder)).toEqual([{ kind: "annotation", id: "a1" }]);
+});
+
+test("controlled: a quiet write the host declines does not suppress the host's own later change", () => {
+  const { handle, recorder, rerender } = setup({
+    selectedAnnotationIds: [],
+    onSelectionChange: () => {},
+  });
+  act(() => handle().selectAnnotations(["a1"], { scroll: false }));
+  expect(recorder.requests).toEqual([]);
+
+  rerender({ selectedAnnotationIds: ["a1"], onSelectionChange: () => {} });
+  expect(targets(recorder)).toEqual([{ kind: "annotation", id: "a1" }]);
+});
+
+test("controlled: a quiet write from the host's layout effect holds until its echo", () => {
+  const recorder = createRecorder();
+  function LayoutEffectHost() {
+    const [ids, setIds] = useState<string[]>([]);
+    const handleRef = useRef<AnnotatorHandle>(null);
+    useLayoutEffect(() => {
+      handleRef.current!.selectAnnotations(["a1"], { scroll: false });
+    }, []);
+    return (
+      <FakeAnnotator
+        common={{
+          annotations: ANNOTATIONS,
+          selectedAnnotationIds: ids,
+          onSelectionChange: (next) => setIds([...next]),
+        }}
+        fake={{ recorder }}
+        handleRef={handleRef}
+      />
+    );
+  }
+  render(<LayoutEffectHost />);
+  expect(recorder.requests).toEqual([]);
+});
+
+/** Controlled selection ["a1"], maybe selected again via the handle; reload. */
+async function reloadAfterSelect(selectThroughHandle: boolean) {
+  const common = { selectedAnnotationIds: ["a1"] };
+  const { handle, recorder, rerender } = setup(common);
+  expect(recorder.requests).toHaveLength(1);
+  if (selectThroughHandle) {
+    const scrolled = await settle(() =>
+      handle().scrollToAnnotation("a1", { select: true })
+    );
+    expect(scrolled).toBe(true);
+    // The host echoes an equal array, which the bridge drops.
+    rerender({ selectedAnnotationIds: ["a1"] });
+  }
+  const before = recorder.requests.length;
+  rerender(common, { status: LOADING });
+  rerender(common, { status: READY });
+  return recorder.requests.slice(before).map((r) => [r.target, r.bounded]);
+}
+
+test("controlled: scrollToAnnotation(currentId, {select:true}) does not suppress the deep link after a reload", async () => {
+  const deepLink = [[{ kind: "annotation", id: "a1" }, false]];
+  expect(await reloadAfterSelect(false)).toEqual(deepLink);
+  expect(await reloadAfterSelect(true)).toEqual(deepLink);
+});
+
+test("a change whose target is not drawable yet waits until the format reports drawability changed", () => {
+  const common = { defaultSelectedAnnotationIds: ["a1"] };
+  const { recorder, rerender } = setup(common, { status: LOADING });
+  recorder.drawable = false;
+  rerender(common, { status: READY });
+  rerender({ ...common, annotations: [...ANNOTATIONS] }, { status: READY });
+  expect(recorder.requests).toEqual([]);
+
+  recorder.drawable = true;
+  act(() => recorder.notifyDrawabilityChanged());
+  expect(recorder.requests).toEqual([
+    {
+      seq: 1,
+      target: { kind: "annotation", id: "a1" },
+      behavior: "smooth",
+      bounded: false,
+    },
+  ]);
+
+  act(() => recorder.notifyDrawabilityChanged());
+  expect(recorder.requests).toHaveLength(1);
 });
 
 test("user-sourced selection does not raise one, uncontrolled", () => {

@@ -8,7 +8,11 @@ import { useEffect, useLayoutEffect } from "react";
 import type { Ref } from "react";
 
 import { AnnotatorShell } from "../AnnotatorShell";
-import { useNotifyFitWidthChanged, useRegisterFormatDriver } from "../format";
+import {
+  useNotifyDrawabilityChanged,
+  useNotifyFitWidthChanged,
+  useRegisterFormatDriver,
+} from "../format";
 import { useSetDocumentStatus } from "../formatHooks";
 import type { ScrollRequest } from "../scroll";
 import { useScrollRequest } from "../scroll";
@@ -56,6 +60,10 @@ export interface FakeRecorder {
   write<T>(key: ControllableKey, next: T, info: ChangeInfo): void;
   /** Tells the shell `resolveFitWidth()` may differ. Usable once mounted. */
   notifyFitWidthChanged(): void;
+  /** When false, `canDraw` answers false for everything. Default true. */
+  drawable: boolean;
+  /** Tells the shell `canDraw` may answer differently. Usable once mounted. */
+  notifyDrawabilityChanged(): void;
 }
 
 export function createRecorder(): FakeRecorder {
@@ -69,6 +77,10 @@ export function createRecorder(): FakeRecorder {
       throw new Error("the fake format is not mounted");
     },
     notifyFitWidthChanged() {
+      throw new Error("the fake format is not mounted");
+    },
+    drawable: true,
+    notifyDrawabilityChanged() {
       throw new Error("the fake format is not mounted");
     },
   };
@@ -98,6 +110,7 @@ export function FakeFormat({
     "activeHighlight"
   );
   const notifyFitWidthChanged = useNotifyFitWidthChanged();
+  const notifyDrawabilityChanged = useNotifyDrawabilityChanged();
   useLayoutEffect(() => {
     const setters = {
       selection: setSelection,
@@ -106,12 +119,14 @@ export function FakeFormat({
     } as Record<ControllableKey, (next: unknown, info: ChangeInfo) => void>;
     recorder.write = (key, next, info) => setters[key](next, info);
     recorder.notifyFitWidthChanged = notifyFitWidthChanged;
+    recorder.notifyDrawabilityChanged = notifyDrawabilityChanged;
   }, [
     recorder,
     setSelection,
     setZoom,
     setActiveHighlight,
     notifyFitWidthChanged,
+    notifyDrawabilityChanged,
   ]);
 
   const setStatus = useSetDocumentStatus();
@@ -138,6 +153,7 @@ export function FakeFormat({
     },
     resolveFitWidth: () => fitWidth,
     canDraw: (target) =>
+      recorder.drawable &&
       target.id.startsWith(target.kind === "annotation" ? "a" : "h"),
   });
 

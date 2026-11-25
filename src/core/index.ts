@@ -7,7 +7,11 @@ export * from "./types";
 export { AnnotatorShell } from "./AnnotatorShell";
 export type { AnnotatorShellProps } from "./AnnotatorShell";
 
-export { useNotifyFitWidthChanged, useRegisterFormatDriver } from "./format";
+export {
+  useNotifyDrawabilityChanged,
+  useNotifyFitWidthChanged,
+  useRegisterFormatDriver,
+} from "./format";
 export type { FormatDriver } from "./format";
 
 export {

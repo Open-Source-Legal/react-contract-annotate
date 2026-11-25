@@ -23,7 +23,17 @@ export interface FormatDriver {
   scrollToPage(pageIndex: number, behavior: ScrollBehavior): boolean;
   /** The zoom that fits the page width; null until it can be measured. */
   resolveFitWidth(): number | null;
-  /** True when the id is known and this format can draw it. */
+  /**
+   * True when the id is known and this format can draw it now. Asked by
+   * `scrollToAnnotation` / `scrollToHighlight`, and by the shell when it
+   * handles a selection or active-highlight change (once the document is
+   * ready and the id is in the data). A change it answers false for is not
+   * dropped: the shell asks again whenever the selection, the data, the
+   * status or the driver changes, and when the format calls the function
+   * from `useNotifyDrawabilityChanged()`. A format whose answer can turn
+   * true for any other reason (pages laid out, a projection finished) must
+   * call it then.
+   */
   canDraw(target: ScrollTarget): boolean;
 }
 
@@ -32,6 +42,9 @@ export const formatDriverAtom = atom<FormatDriver | null>(null);
 
 /** Bumped whenever a format reports that `resolveFitWidth()` may differ. */
 export const fitWidthVersionAtom = atom(0);
+
+/** Bumped whenever a format reports that `canDraw()` may answer differently. */
+export const drawabilityVersionAtom = atom(0);
 
 /**
  * Registers the format's driver for as long as the calling component is
@@ -79,5 +92,17 @@ export function useNotifyFitWidthChanged(): () => void {
   const store = useAnnotatorStore("useNotifyFitWidthChanged");
   return useCallback(() => {
     store.set(fitWidthVersionAtom, (version) => version + 1);
+  }, [store]);
+}
+
+/**
+ * A stable function a format calls when `canDraw()` may now answer
+ * differently, so the shell can raise a scroll request it was holding back
+ * for a target that was not drawable yet.
+ */
+export function useNotifyDrawabilityChanged(): () => void {
+  const store = useAnnotatorStore("useNotifyDrawabilityChanged");
+  return useCallback(() => {
+    store.set(drawabilityVersionAtom, (version) => version + 1);
   }, [store]);
 }
