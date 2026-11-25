@@ -410,7 +410,7 @@ interface PdfAnnotatorProps<M> extends AnnotatorCommonProps<M> {
             withCredentials?: boolean }
         | { data: Uint8Array | ArrayBuffer }
         | { document: PDFDocumentProxy };
-  pawls?: PawlsPage[] | null;
+  pawls?: PawlsPage[] | CompactPawls | null;   // v1 pages or compact v2 ({ v: 2, p: [...] })
   enableNativeLinks?: boolean;                 // default true
 }
 
