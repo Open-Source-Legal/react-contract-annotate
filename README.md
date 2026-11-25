@@ -23,10 +23,11 @@ each other.
 
 ## Install
 
-The package is `@os-legal/react-contract-annotate`. **It is not published to npm
-yet**, so there is no registry install today. Until it is published, build it
-from a checkout (`yarn build`) and link it into your project, as `examples/demo`
-does with `"@os-legal/react-contract-annotate": "portal:../.."`.
+```bash
+yarn add @os-legal/react-contract-annotate     # or: npm install @os-legal/react-contract-annotate
+```
+
+The package is ESM only and needs a bundler (Vite, webpack and the like).
 
 Peer dependencies:
 
@@ -749,6 +750,10 @@ yarn check:dist         # entry points stay isolated from each other's engines
 # the demo: its own Yarn project, linked to the build above
 yarn build && yarn --cwd examples/demo install && yarn --cwd examples/demo dev
 ```
+
+**Releasing.** Set `version` in `package.json`, merge, and publish a GitHub
+release tagged `v<version>`: `.github/workflows/publish.yml` builds, tests and
+publishes that version to npm. It refuses a tag that does not match the version.
 
 The demo is published to GitHub Pages from `main` by `.github/workflows/pages.yml`;
 `examples/demo/README.md` says where its documents come from and how its data is
