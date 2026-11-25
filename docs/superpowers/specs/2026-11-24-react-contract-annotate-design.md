@@ -140,7 +140,9 @@ Both were picked by the project owner in conversation.
 
 ## Data model
 
-Plain JSON in, no classes in the public API. Internally the ported
+Plain JSON in, no classes in the public API. Annotation objects are treated as
+immutable: normalisation is memoised by object identity, so a host changes an
+annotation by passing a new object, not by mutating one in place. Internally the ported
 `ServerTokenAnnotation` / `ServerSpanAnnotation` / `PDFPageInfo` classes may
 stay.
 
@@ -409,7 +411,7 @@ interface PdfAnnotatorProps<M> extends AnnotatorCommonProps<M> {
   source: { url: string; httpHeaders?: Record<string, string>;
             withCredentials?: boolean }
         | { data: Uint8Array | ArrayBuffer }
-        | { document: PDFDocumentProxy };
+        | { document: PDFDocumentProxy };     // typed structurally (`PdfDocumentProxyLike`) in core, which may not import pdfjs-dist
   pawls?: PawlsPage[] | CompactPawls | null;   // v1 pages or compact v2 ({ v: 2, p: [...] })
   enableNativeLinks?: boolean;                 // default true
 }
