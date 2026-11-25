@@ -30,8 +30,10 @@
  * layer or its canvas, not on a box, a label chip or host content in it, or
  * a link) clears the annotation selection and the pending selection, as
  * above; a click on an annotation or highlight box clears nothing and is left
- * to the box. A tap on the blank page is such a click. A page without tokens
- * (no PAWLs) ignores presses.
+ * to the box. A tap on the blank page is such a click. On a page without
+ * tokens (no PAWLs, where bounds-only annotations still render) a press is
+ * recorded so its click is seen, but it never becomes a drag: a drag there
+ * selects and clears nothing.
  *
  * Painted here: the drag in progress and the kept regions on this page, with
  * the tokens they capture (`[data-rca-drag-region]`, `[data-rca-drag-token]`),
@@ -103,10 +105,11 @@ const CanvasWrapper = styled.div`
 type Point = { x: number; y: number };
 
 /**
- * Where a press happened: in the viewport, and on the page (scale 1); and
- * whether it landed on the blank page.
+ * Where a press happened: in the viewport, and on the page (scale 1);
+ * whether it landed on the blank page; and whether the pointer has since
+ * moved further than a click may.
  */
-type Press = { client: Point; page: Point; blank: boolean };
+type Press = { client: Point; page: Point; blank: boolean; moved: boolean };
 
 /** Where a touch began, and whether on the blank page. */
 type TouchStart = Point & { blank: boolean };
@@ -254,7 +257,10 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
     [clearSelections, controls, pageIndex]
   );
 
-  /** The pointer is at a viewport point: start or extend the drag. */
+  /**
+   * The pointer is at a viewport point: start or extend the drag. On a page
+   * without tokens the press only records that it moved.
+   */
   const moveTo = useCallback(
     (clientX: number, clientY: number) => {
       const press = pressRef.current;
@@ -264,11 +270,14 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
       const current = controls.get();
       const { active } = current;
       if (active === null) {
+        if (press.moved) return;
         const moved = Math.hypot(
           clientX - press.client.x,
           clientY - press.client.y
         );
-        if (moved > CLICK_DRAG_TOLERANCE_PX) begin(press.page, point);
+        if (moved <= CLICK_DRAG_TOLERANCE_PX) return;
+        press.moved = true;
+        if (selectable) begin(press.page, point);
         return;
       }
       if (active.pageIndex !== pageIndex) return;
@@ -280,7 +289,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
         },
       });
     },
-    [toPage, controls, begin, pageIndex]
+    [toPage, controls, selectable, begin, pageIndex]
   );
 
   /**
@@ -303,7 +312,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
       const current = controls.get();
       const { active } = current;
       if (!active) {
-        if (press.blank && isBlank(target)) clearSelections();
+        if (!press.moved && press.blank && isBlank(target)) clearSelections();
         return;
       }
       if (active.pageIndex !== pageIndex) return;
@@ -349,7 +358,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
    */
   const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
     // Allow selection for copying even in read-only mode
-    if (!selectable || pressRef.current || event.buttons !== 1) return;
+    if (pressRef.current || event.buttons !== 1) return;
     if (isOnLink(event.target)) return;
     const page = toPage(event.clientX, event.clientY);
     if (!page) return;
@@ -357,6 +366,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
       client: { x: event.clientX, y: event.clientY },
       page,
       blank: isBlank(event.target),
+      moved: false,
     };
     setArmed(true);
   };
@@ -369,10 +379,11 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
   };
 
   /**
-   * Handles touch start for mobile long press detection
+   * Handles touch start for mobile long press detection (on a page with
+   * tokens) and for taps
    */
   const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (!selectable || pressRef.current || event.touches.length !== 1) return;
+    if (pressRef.current || event.touches.length !== 1) return;
     const touch = event.touches[0];
     const start = {
       x: touch.clientX,
@@ -381,6 +392,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
     };
     touchStartRef.current = start;
     clearLongPressTimer();
+    if (!selectable) return;
     longPressTimerRef.current = setTimeout(() => {
       longPressTimerRef.current = null;
       const page = toPage(start.x, start.y);
@@ -391,6 +403,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
         client: { x: start.x, y: start.y },
         page,
         blank: start.blank,
+        moved: false,
       };
       setIsLongPressActive(true);
       begin(page, page);
@@ -406,13 +419,13 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
 
     // If long press hasn't activated yet, check for movement threshold
     const start = touchStartRef.current;
-    if (longPressTimerRef.current !== null && start && !isLongPressActive) {
+    if (start && !isLongPressActive) {
       const distance = Math.hypot(
         touch.clientX - start.x,
         touch.clientY - start.y
       );
       if (distance > TOUCH_MOVE_THRESHOLD_PX) {
-        // Cancel long press if moved too much
+        // Cancel long press (and the tap) if moved too much
         clearLongPressTimer();
         touchStartRef.current = null;
       }
@@ -429,11 +442,11 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
 
   /**
    * Handles touch end - finalize selection if active; a tap (released before
-   * the hold is over, without moving away) on the blank page is a blank click
+   * a long press began, without moving away) on the blank page is a blank
+   * click
    */
   const handleTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
-    const tapStart =
-      longPressTimerRef.current !== null ? touchStartRef.current : null;
+    const tapStart = touchStartRef.current;
     clearLongPressTimer();
     touchStartRef.current = null;
     if (!isLongPressActive) {

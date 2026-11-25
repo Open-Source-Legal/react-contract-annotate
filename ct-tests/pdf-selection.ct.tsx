@@ -300,14 +300,12 @@ test("pending selection survives scrolling its page out and back", async ({
   expect(await callHandle(page, "getPendingSelection", [])).toEqual(before);
 });
 
-test("shift-drag on page 0 then page 1 -> one draft whose json has keys 0 and 1", async ({
-  mount,
-  page,
-}) => {
-  await mount(<PdfHarness annotationIds={[]} />);
-  await ready(page);
+/**
+ * Shift-drags over tokens 0-1 of page 0, scrolls far away and back to page 1,
+ * drags over its tokens 1-3, and expects one draft of both pages.
+ */
+async function expectShiftDragAcrossPages(page: Page): Promise<void> {
   const root = annotatorRoot(page);
-
   await dragOverTokens(page, 0, 0, 1, { shift: true });
 
   expect(await textSelections(page)).toEqual([]);
@@ -338,6 +336,30 @@ test("shift-drag on page 0 then page 1 -> one draft whose json has keys 0 and 1"
   await expect(dragRegions(root, 0)).toHaveCount(0);
   await expect(pendingRegion(root, 0)).toHaveCount(1);
   await expect(pendingRegion(root, 1)).toHaveCount(1);
+}
+
+test("shift-drag on page 0 then page 1 -> one draft whose json has keys 0 and 1", async ({
+  mount,
+  page,
+}) => {
+  await mount(<PdfHarness annotationIds={[]} />);
+  await ready(page);
+
+  await expectShiftDragAcrossPages(page);
+});
+
+test("a host passing a fresh, equal pawls on every render keeps the Shift regions: one draft of pages 0 and 1", async ({
+  mount,
+  page,
+}) => {
+  // Every callback (onVisiblePagesChange while scrolling, ...) re-renders
+  // the host, which passes new PAWLs, so the pages are rebuilt mid-gesture.
+  await mount(
+    <PdfHarness annotationIds={[]} freshPawls rerenderOnCallbacks />
+  );
+  await ready(page);
+
+  await expectShiftDragAcrossPages(page);
 });
 
 test("drag over an existing annotation still selects the text under it", async ({
@@ -464,6 +486,44 @@ test("usc fixture without pawls: dragging produces no onTextSelect and no error"
   expect(await textSelections(page)).toEqual([]);
   expect(await callHandle(page, "getPendingSelection", [])).toBeNull();
   await expect(dragRegions(root, 0)).toHaveCount(0);
+});
+
+test("usc fixture without pawls: a blank click clears the selection; a drag there still selects nothing", async ({
+  mount,
+  page,
+}) => {
+  await mount(<PdfHarness fixture="usc" withPawls={false} />);
+  await ready(page);
+  const root = annotatorRoot(page);
+  await callHandle(page, "selectAnnotations", [["any-id"], { scroll: false }]);
+  expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([
+    "any-id",
+  ]);
+  const canvas = await pageCanvas(root, 0).boundingBox();
+  if (!canvas) throw new Error("page 0 is not mounted");
+
+  await drag(
+    page,
+    { x: canvas.x + canvas.width / 4, y: canvas.y + canvas.height / 8 },
+    { x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height / 4 }
+  );
+
+  expect(await textSelections(page)).toEqual([]);
+  expect(await userSelectionChanges(page)).toEqual([]);
+  expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([
+    "any-id",
+  ]);
+
+  await page.mouse.click(
+    canvas.x + canvas.width / 2,
+    canvas.y + canvas.height / 2
+  );
+
+  await expect
+    .poll(() => userSelectionChanges(page))
+    .toEqual([[[], { source: "user" }]]);
+  expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([]);
+  expect(await textSelections(page)).toEqual([]);
 });
 
 test("host adds the draft to annotations -> it renders as a normal annotation box", async ({

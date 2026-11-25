@@ -12,7 +12,10 @@
  * completes it is the store's pending selection, not this.
  *
  * `PdfDragProvider` also lets Escape cancel the gesture while it holds
- * anything, and drops it when the document's pages change.
+ * anything, and drops it when a different document loads. It survives the
+ * pages being rebuilt for the same document (new PAWLs, or an equal `pawls`
+ * passed anew): kept regions are page rectangles, evaluated against the
+ * tokens there are when the selection completes.
  */
 import {
   createContext,
@@ -64,9 +67,19 @@ function touchedPages({ active, regions }: PdfDragState): number[] {
 }
 
 export interface PdfDragProviderProps {
-  /** The document's pages: when they change the gesture is dropped. */
+  /** The document's pages; a different document drops the gesture. */
   pages: readonly PDFPageInfo[];
   children?: ReactNode;
+}
+
+/**
+ * What identifies the document of `pages`: its first page's pdf.js proxy.
+ * The loader rebuilds the page infos of one document around the same proxies
+ * (a document hands out one proxy per page), and every load makes new ones.
+ * Null while there are no pages.
+ */
+function documentOf(pages: readonly PDFPageInfo[]): object | null {
+  return pages[0]?.page ?? null;
 }
 
 export function PdfDragProvider({ pages, children }: PdfDragProviderProps) {
@@ -83,11 +96,11 @@ export function PdfDragProvider({ pages, children }: PdfDragProviderProps) {
     []
   );
 
-  // Regions of another document (or of tokens since replaced) must not end
-  // up in a draft of this one.
+  // Regions of another document must not end up in a draft of this one.
+  const documentKey = documentOf(pages);
   useLayoutEffect(() => {
     if (latest.current !== NO_DRAG) controls.set(NO_DRAG);
-  }, [pages, controls]);
+  }, [documentKey, controls]);
 
   const holding = state !== NO_DRAG;
   useEffect(() => {

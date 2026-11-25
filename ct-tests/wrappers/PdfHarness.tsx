@@ -22,6 +22,10 @@
  *   `[data-harness-apply]`, that commits the pending selection.
  * - `addCreated` does what a host does with `onCreateAnnotation`: each draft
  *   is added to the annotations it passes, as `created-<n>` (n from 1).
+ * - `freshPawls` passes a new copy of the fixture's PAWLs, equal to it, on
+ *   every render (a host that normalises them inline).
+ * - `rerenderOnCallbacks` re-renders the harness after every callback the
+ *   annotator fires (a host that keeps what callbacks report in state).
  *
  * The fixture's relations are always passed.
  *
@@ -30,7 +34,7 @@
  * its PDF, PAWLs, annotations and relations are passed together, so a PDF is
  * never paired with another fixture's data.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type {
@@ -56,6 +60,8 @@ export interface PdfHarnessProps {
   omitCallbacks?: CallbackName[];
   selectionMenu?: boolean;
   addCreated?: boolean;
+  freshPawls?: boolean;
+  rerenderOnCallbacks?: boolean;
   /** Addresses the harness from the test; default `"default"`. */
   name?: string;
 }
@@ -128,7 +134,8 @@ function eventLog(name: string): HarnessEvent[] {
 function loggedCallbacks(
   log: HarnessEvent[],
   props: Partial<PdfAnnotatorProps>,
-  omit: readonly CallbackName[]
+  omit: readonly CallbackName[],
+  afterEach?: () => void
 ): Pick<PdfAnnotatorProps, CallbackName> {
   const callbacks: Partial<Record<CallbackName, unknown>> = {};
   for (const callback of CALLBACKS) {
@@ -141,7 +148,9 @@ function loggedCallbacks(
       | undefined;
     callbacks[callback] = (...args: unknown[]) => {
       log.push([callback, ...args]);
-      return own?.(...args);
+      const result = own?.(...args);
+      afterEach?.();
+      return result;
     };
   }
   return callbacks as Pick<PdfAnnotatorProps, CallbackName>;
@@ -158,6 +167,13 @@ function pickAnnotations(
   return picked.map((a) =>
     Object.hasOwn(linkUrls, a.id) ? { ...a, linkUrl: linkUrls[a.id] } : a
   );
+}
+
+/** A new PAWLs object equal to `pawls`, down to its pages. */
+function copyPawls(pawls: PawlsInput): PawlsInput {
+  return Array.isArray(pawls)
+    ? pawls.map((page) => ({ ...page }))
+    : { ...pawls, p: pawls.p.map((page) => ({ ...page })) };
 }
 
 /** The annotation a host makes of the `n`th created draft. */
@@ -195,8 +211,11 @@ export function PdfHarness({
   omitCallbacks = [],
   selectionMenu = false,
   addCreated = false,
+  freshPawls = false,
+  rerenderOnCallbacks = false,
   name = DEFAULT_NAME,
 }: PdfHarnessProps) {
+  const [, rerender] = useReducer((renders: number) => renders + 1, 0);
   const files = FIXTURES[fixture];
   const [data, setData] = useState<FixtureData | null>(null);
   const [created, setCreated] = useState<Annotation[]>([]);
@@ -267,7 +286,7 @@ export function PdfHarness({
       <PdfAnnotator
         ref={setHandle}
         source={{ url: data.pdf }}
-        pawls={data.pawls}
+        pawls={freshPawls && data.pawls ? copyPawls(data.pawls) : data.pawls}
         annotations={annotations}
         relations={data.relations}
         renderSelectionMenu={selectionMenu ? renderMenu : undefined}
@@ -276,7 +295,8 @@ export function PdfHarness({
         {...loggedCallbacks(
           log,
           { ...props, onCreateAnnotation },
-          omitCallbacks
+          omitCallbacks,
+          rerenderOnCallbacks ? rerender : undefined
         )}
       />
     </div>

@@ -48,6 +48,17 @@ export function pageInfo(
   );
 }
 
+/**
+ * `page` rebuilt the way the loader rebuilds it for new PAWLs: the same
+ * pdf.js page (same document), new token objects (equal by default).
+ */
+export function rebuilt(
+  page: PDFPageInfo,
+  tokens: PawlsToken[] = page.tokens.map((token) => ({ ...token }))
+): PDFPageInfo {
+  return new PDFPageInfo(page.page, tokens, 1);
+}
+
 type Common = Partial<AnnotatorCommonProps>;
 
 /**

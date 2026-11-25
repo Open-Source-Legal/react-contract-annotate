@@ -35,6 +35,7 @@ import {
   click,
   drag,
   pageInfo,
+  rebuilt,
   renderLayers,
   touchAt,
 } from "./selectionFixture";
@@ -190,22 +191,31 @@ describe("the gesture", () => {
     expect(layer().querySelectorAll("[data-rca-drag-region]")).toHaveLength(0);
   });
 
-  test("a press on a page without tokens does nothing", () => {
-    const addSpy = vi.spyOn(document, "addEventListener");
+  test("a page without tokens: a drag selects and clears nothing; a blank click still clears", () => {
     const onTextSelect = vi.fn();
     const onSelectionChange = vi.fn();
+    // Page 0 has tokens (for a pending selection); page 1 has none.
     const { layer } = renderLayers(
-      { onTextSelect, onSelectionChange, defaultSelectedAnnotationIds: ["a1"] },
-      { pages: [pageInfo(1, [])] }
+      { selectedAnnotationIds: ["a1"], onTextSelect, onSelectionChange },
+      { pages: [pageInfo(1), pageInfo(2, [])] }
     );
-    addSpy.mockClear();
+    drag(layer(0), { x: 12, y: 31 }, { x: 25, y: 33 });
+    expect(layer(0).querySelectorAll("[data-rca-pending-region]")).toHaveLength(1);
+    onTextSelect.mockClear();
+    onSelectionChange.mockClear();
 
-    drag(layer(), IN_HELLO, IN_WORLD);
+    drag(layer(1), IN_HELLO, IN_WORLD);
 
-    expect(addSpy.mock.calls.map(([type]) => type)).not.toContain("mousemove");
     expect(onTextSelect).not.toHaveBeenCalled();
     expect(onSelectionChange).not.toHaveBeenCalled();
-    addSpy.mockRestore();
+    expect(layer(1).querySelectorAll("[data-rca-drag-region]")).toHaveLength(0);
+    expect(layer(0).querySelectorAll("[data-rca-pending-region]")).toHaveLength(1);
+
+    click(canvasOf(layer(1)), BLANK);
+
+    expect(onSelectionChange.mock.calls).toEqual([[[], { source: "user" }]]);
+    expect(layer(0).querySelectorAll("[data-rca-pending-region]")).toHaveLength(0);
+    expect(onTextSelect).not.toHaveBeenCalled();
   });
 
   test("Shift-release keeps the region; a release without Shift on another page completes one draft of both pages", () => {
@@ -286,12 +296,32 @@ describe("the gesture", () => {
     expect(onTextSelect).not.toHaveBeenCalled();
   });
 
+  test("the same document with new PAWLs keeps the regions kept with Shift", () => {
+    const onTextSelect = vi.fn();
+    const first = pageInfo(1);
+    const { layer, rerender } = renderLayers(
+      { onTextSelect },
+      { pages: [first] }
+    );
+    drag(layer(), IN_HELLO, IN_WORLD, { shift: true });
+
+    // New page infos and tokens around the same pdf.js page.
+    rerender({ onTextSelect }, [rebuilt(first)]);
+
+    expect(layer().querySelectorAll("[data-rca-drag-region]")).toHaveLength(1);
+    drag(layer(), { x: 12, y: 31 }, { x: 25, y: 33 });
+    expect((onTextSelect.mock.calls[0][0] as PendingSelection).rawText).toBe(
+      "Hello world again"
+    );
+  });
+
   test("a new document drops the regions kept with Shift", () => {
     const onTextSelect = vi.fn();
     const { layer, rerender } = renderLayers({ onTextSelect });
     drag(layer(), IN_HELLO, IN_WORLD, { shift: true });
     expect(layer().querySelectorAll("[data-rca-drag-region]")).toHaveLength(1);
 
+    // A new pdf.js page: another document, with the same tokens.
     rerender({ onTextSelect }, [pageInfo(1)]);
 
     expect(layer().querySelectorAll("[data-rca-drag-region]")).toHaveLength(0);
@@ -358,6 +388,31 @@ describe("touch", () => {
       vi.advanceTimersByTime(LONG_PRESS_MS);
     });
     expect(onSelectionChange).toHaveBeenCalledTimes(1);
+  });
+
+  test("a tap on the blank page of a page without tokens is a blank click", () => {
+    const onSelectionChange = vi.fn();
+    const onTextSelect = vi.fn();
+    const { layer } = renderLayers(
+      {
+        defaultSelectedAnnotationIds: ["a1"],
+        onSelectionChange,
+        onTextSelect,
+      },
+      { pages: [pageInfo(1, [])] }
+    );
+    const canvas = canvasOf(layer());
+
+    fireEvent.touchStart(canvas, { touches: touchAt(BLANK) });
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    // No long press on a page without tokens: the release is a tap.
+    expect(onSelectionChange).not.toHaveBeenCalled();
+    fireEvent.touchEnd(canvas, { changedTouches: touchAt(BLANK) });
+
+    expect(onSelectionChange.mock.calls).toEqual([[[], { source: "user" }]]);
+    expect(onTextSelect).not.toHaveBeenCalled();
   });
 
   test("a tap that moved away, or on a box, is not a blank click", () => {
