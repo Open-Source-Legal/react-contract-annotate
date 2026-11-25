@@ -1,42 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
-import {
-  determineCardColCount,
-  clampMenuPosition,
-  visualViewportAwareBottom,
-} from "../layout";
+import { clampMenuPosition } from "../layout";
 
 describe("layout utilities", () => {
-  describe("visualViewportAwareBottom", () => {
-    it("nests the baseOffset inside a max() / calc() expression using both viewport CSS vars", () => {
-      const result = visualViewportAwareBottom("1rem");
-      expect(result).toContain("max(1rem,");
-      expect(result).toContain("--oc-dkb-visible-viewport-height");
-      expect(result).toContain("--oc-visible-viewport-height");
-      expect(result).toContain("--oc-dkb-visible-viewport-offset-top");
-      expect(result.endsWith("+ 1rem))")).toBe(true);
-    });
-
-    it("accepts arbitrary CSS length tokens for baseOffset", () => {
-      expect(visualViewportAwareBottom("2.5rem")).toContain("max(2.5rem,");
-      expect(visualViewportAwareBottom("16px")).toContain("max(16px,");
-    });
-  });
-
-  describe("determineCardColCount", () => {
-    it.each([
-      [320, 1],
-      [600, 2],
-      [900, 3],
-      [1100, 4],
-      [1440, 5],
-      [1700, 6],
-      [2200, 7],
-      [3000, 8],
-    ])("width=%i returns %i columns", (width, expected) => {
-      expect(determineCardColCount(width)).toBe(expected);
-    });
-  });
-
   describe("clampMenuPosition", () => {
     let originalWidth: number;
     let originalHeight: number;

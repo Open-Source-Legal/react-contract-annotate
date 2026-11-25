@@ -69,26 +69,6 @@ export const TOKEN_SHADOW_SPREAD = 1;
 export const TOKEN_EXPANSION_PX = 1;
 
 /**
- * Stacking of an annotation box (OpenContracts' `zIndex: 2`): the fallback
- * of `--rca-z-annotation`.
- */
-export const ANNOTATION_Z_INDEX = 2;
-
-/**
- * Stacking of a highlight box: the fallback of `--rca-z-highlight`.
- * OpenContracts' result boundary sets no `z-index`, so highlights paint in
- * document order, below the annotation boxes.
- */
-export const HIGHLIGHT_Z_INDEX = "auto";
-
-/**
- * Stacking of the pending selection and of a selection being made: the
- * fallback of `--rca-z-pending`. OpenContracts draws them with the
- * annotation's boundary, `zIndex: 2`.
- */
-export const PENDING_Z_INDEX = 2;
-
-/**
  * Text of the bar above an annotation box that holds the label chip
  * (`SelectionInfo`): the fallbacks of `--rca-label-font-weight` and
  * `--rca-label-font-size`.
@@ -123,5 +103,3 @@ export const PAGE_RENDER_DEBOUNCE_MS = 100;
  * annotation for the press to count as a click rather than a drag.
  */
 export const CLICK_DRAG_TOLERANCE_PX = 3;
-/** `KeyboardEvent.key` of the key that cancels a selection being made. */
-export const ESCAPE_KEY = "Escape";

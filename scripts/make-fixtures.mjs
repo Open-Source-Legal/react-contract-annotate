@@ -8,10 +8,10 @@ const root = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
 
 const pawls = JSON.parse(readFileSync(root("fixtures/eton/pawls.json"), "utf8"));
 
-// The URL label's colour is a ported constant; read it so the fixture cannot drift.
-const constantsSource = readFileSync(root("src/core/constants.ts"), "utf8");
-const urlColor = /OC_URL_LABEL_COLOR\s*=\s*"([^"]+)"/.exec(constantsSource)?.[1];
-if (!urlColor) throw new Error("OC_URL_LABEL_COLOR not found in src/core/constants.ts");
+// The presentation colour of OpenContracts' OC_URL label
+// (OC_URL_LABEL_COLOR in frontend/src/assets/configurations/constants.ts,
+// 98286cabf); the library itself has no use for it.
+const urlColor = "#2563EB";
 
 const LABELS = {
   exhibit: { id: "l-exhibit", text: "Exhibit", color: "#e11d48" },

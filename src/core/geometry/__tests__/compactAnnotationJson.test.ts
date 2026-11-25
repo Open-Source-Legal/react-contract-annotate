@@ -6,8 +6,6 @@ import {
   isSpanFormat,
   compactAnnotationJson,
   expandAnnotationJson,
-  iterPageAnnotations,
-  hasAnyTokens,
 } from "../compactAnnotationJson";
 
 describe("compactAnnotationJson", () => {
@@ -115,67 +113,6 @@ describe("compactAnnotationJson", () => {
         right: 0,
         bottom: 0,
       });
-    });
-  });
-
-  describe("iterPageAnnotations", () => {
-    it("yields empty array for span annotations", () => {
-      expect(iterPageAnnotations({ start: 0, end: 3 }, "text")).toEqual([]);
-    });
-
-    it("yields empty array for falsy inputs", () => {
-      expect(iterPageAnnotations(null)).toEqual([]);
-      expect(iterPageAnnotations("string" as any)).toEqual([]);
-    });
-
-    it("iterates v2 compact pages", () => {
-      const pages = iterPageAnnotations(
-        { v: 2, p: { "3": { b: [1, 2, 3, 4], t: "1,5-6" } } },
-        "raw"
-      );
-      expect(pages).toHaveLength(1);
-      expect(pages[0].pageIndex).toBe(3);
-      expect(pages[0].bounds).toEqual({ top: 1, left: 2, right: 3, bottom: 4 });
-      expect(pages[0].tokenIndices).toEqual([1, 5, 6]);
-      expect(pages[0].rawText).toBe("raw");
-    });
-
-    it("iterates v1 legacy pages", () => {
-      const pages = iterPageAnnotations(
-        {
-          "0": {
-            bounds: { top: 1, left: 2, right: 3, bottom: 4 },
-            tokensJsons: [{ pageIndex: 0, tokenIndex: 7 }],
-            rawText: "per-page-text",
-          },
-        },
-        "fallback"
-      );
-      expect(pages).toHaveLength(1);
-      expect(pages[0].pageIndex).toBe(0);
-      expect(pages[0].tokenIndices).toEqual([7]);
-      expect(pages[0].rawText).toBe("per-page-text");
-    });
-  });
-
-  describe("hasAnyTokens", () => {
-    it("returns true for span annotations", () => {
-      expect(hasAnyTokens({ start: 0, end: 5 })).toBe(true);
-    });
-
-    it("returns true when any page has tokens", () => {
-      expect(
-        hasAnyTokens({ v: 2, p: { "0": { b: [0, 0, 0, 0], t: "1" } } })
-      ).toBe(true);
-    });
-
-    it("returns false for empty multipage annotations", () => {
-      expect(hasAnyTokens({ v: 2, p: {} })).toBe(false);
-    });
-
-    it("returns false for invalid inputs", () => {
-      expect(hasAnyTokens(null)).toBe(false);
-      expect(hasAnyTokens("text" as any)).toBe(false);
     });
   });
 });

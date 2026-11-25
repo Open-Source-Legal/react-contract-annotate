@@ -7,7 +7,6 @@ test("ported values match OpenContracts", () => {
   expect(C.LONG_PRESS_MS).toBe(500);
   expect(C.TOUCH_MOVE_THRESHOLD_PX).toBe(10);
   expect(C.LONG_PRESS_VIBRATION_MS).toBe(50);
-  expect(C.PENDING_Z_INDEX).toBe(2);
   expect(C.REJECTED_RGB).toEqual({ r: 128, g: 0, b: 0 });
   expect(C.APPROVED_RGB).toEqual({ r: 46, g: 204, b: 113 });
   expect(C.ANNOTATION_BOUNDARY_RADIUS).toBe("6px");
@@ -19,7 +18,6 @@ test("ported values match OpenContracts", () => {
   expect(C.TOKEN_SHADOW_BLUR).toBe(4);
   expect(C.TOKEN_SHADOW_SPREAD).toBe(1);
   expect(C.TOKEN_EXPANSION_PX).toBe(1);
-  expect(C.ANNOTATION_Z_INDEX).toBe(2);
   expect(C.ANNOTATION_LABEL_FONT_WEIGHT).toBe("bold");
   expect(C.ANNOTATION_LABEL_FONT_SIZE).toBe("12px");
   expect(C.RELATION_BADGE_Z_INDEX).toBe(1);
@@ -31,9 +29,4 @@ test("library additions", () => {
   expect(C.PAGE_OVERSCAN).toBe(2);
   expect(C.PAGE_RENDER_DEBOUNCE_MS).toBe(100);
   expect(C.CLICK_DRAG_TOLERANCE_PX).toBe(3);
-  expect(C.ESCAPE_KEY).toBe("Escape");
-});
-
-test("highlight boxes paint in document order unless the host raises them", () => {
-  expect(C.HIGHLIGHT_Z_INDEX).toBe("auto");
 });

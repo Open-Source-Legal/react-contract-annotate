@@ -66,6 +66,7 @@ import styled from "styled-components";
 
 import {
   draftPages,
+  ESCAPE_KEY,
   useCompleteSelection,
   useEditing,
   usePendingActions,
@@ -83,10 +84,8 @@ import type {
 } from "../core/index";
 import {
   CLICK_DRAG_TOLERANCE_PX,
-  ESCAPE_KEY,
   LONG_PRESS_MS,
   LONG_PRESS_VIBRATION_MS,
-  PENDING_Z_INDEX,
   SELECTION_COLOR,
   TOUCH_MOVE_THRESHOLD_PX,
 } from "./constants";
@@ -98,7 +97,8 @@ import { TokenGroup } from "./TokenGroup";
 
 const USER: ChangeInfo = Object.freeze({ source: "user" });
 
-const PENDING_Z_INDEX_VALUE = `var(--rca-z-pending, ${PENDING_Z_INDEX})`;
+/** The stacking of a selection being made or pending (defined on the root). */
+const PENDING_Z_INDEX_VALUE = "var(--rca-z-pending)";
 
 /**
  * This wrapper is inline-block (shrink-wrapped) and position:relative

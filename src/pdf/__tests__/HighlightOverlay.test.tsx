@@ -381,11 +381,13 @@ describe("colour", () => {
 });
 
 describe("stacking", () => {
-  test("the box's z-index is --rca-z-highlight, defaulting to auto", () => {
+  test("the box's z-index is --rca-z-highlight, which the root defaults to auto", () => {
     const { container } = renderOverlay({ highlights: [tokensHighlight("h1")] });
 
-    expect(box(container, "h1")!.style.zIndex).toBe(
-      "var(--rca-z-highlight, auto)"
+    expect(box(container, "h1")!.style.zIndex).toBe("var(--rca-z-highlight)");
+    const root = container.querySelector<HTMLElement>("[data-rca-root]")!;
+    expect(getComputedStyle(root).getPropertyValue("--rca-z-highlight")).toBe(
+      "auto"
     );
   });
 });

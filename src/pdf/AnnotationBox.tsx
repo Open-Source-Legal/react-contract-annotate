@@ -119,10 +119,6 @@ const RelationshipIndicator = styled.div<{ $type: RelationRole }>`
     height: 6px;
     border-radius: 50%;
     background: white;
-    animation: ${(props) =>
-      props.$type === "SOURCE"
-        ? "sourcePulse 2s infinite"
-        : "targetPulse 2s infinite"};
     pointer-events: none;
   }
 

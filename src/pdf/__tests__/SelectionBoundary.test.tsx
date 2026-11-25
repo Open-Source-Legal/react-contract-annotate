@@ -21,7 +21,6 @@ const bounds = { left: 0, top: 0, right: 100, bottom: 50 };
 // Required props that every test needs — extracted so the per-test JSX
 // stays focused on the prop under test (clickThroughOnPlainClick, etc.).
 const baseProps = {
-  hidden: false,
   selected: false,
 } as const;
 
@@ -225,21 +224,6 @@ describe("SelectionBoundary translucent fill", () => {
     );
   });
 
-  it("forces a fully transparent fill when hidden, regardless of showBoundingBox", () => {
-    const { container } = render(
-      <SelectionBoundary
-        {...baseProps}
-        hidden
-        color="#0066cc"
-        bounds={bounds}
-        showBoundingBox
-      />
-    );
-    expect(boundary(container).style.backgroundColor).toBe(
-      "rgba(0, 102, 204, 0)"
-    );
-  });
-
   it("renders the stronger selected fill when selected and showBoundingBox is false", () => {
     const { container } = render(
       <SelectionBoundary
@@ -283,19 +267,6 @@ describe("SelectionBoundary box-shadow halo", () => {
     const span = boundary(container);
     expect(span.style.boxShadow).not.toBe("none");
     expect(span.style.boxShadow).not.toBe("");
-  });
-
-  it("omits the box-shadow halo when hidden, even if showBoundingBox is true", () => {
-    const { container } = render(
-      <SelectionBoundary
-        {...baseProps}
-        hidden
-        color="#0066cc"
-        bounds={bounds}
-        showBoundingBox
-      />
-    );
-    expect(boundary(container).style.boxShadow).toBe("none");
   });
 });
 

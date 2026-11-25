@@ -1,6 +1,6 @@
 // The public surface of `…/core`: the data model, the shell and the format
 // contract a renderer is built on, and the geometry helpers a format needs.
-// Atoms and internal constants stay private.
+// Atoms stay private, and so do the constants but the key formats share.
 
 export * from "./types";
 
@@ -45,6 +45,7 @@ export {
 export type { DocumentStatusUpdate } from "./formatHooks";
 export type { DisplaySettings, DocumentStatus } from "./state/atoms";
 
+export { ESCAPE_KEY } from "./constants";
 export { isUrlAnnotation, useOpenLink } from "./links";
 export { LabelChip, labelColor } from "./LabelChip";
 export type { LabelChipProps } from "./LabelChip";

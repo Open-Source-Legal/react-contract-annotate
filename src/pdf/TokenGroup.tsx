@@ -34,7 +34,6 @@ interface SelectionBoxProps {
   $right?: number;
   $top?: number;
   $bottom?: number;
-  $hidden?: boolean;
 }
 
 // Highlighter-pen effect: generous rounding, low opacity, and a soft
@@ -55,12 +54,10 @@ const SelectionBox = styled.span.attrs<SelectionBoxProps>((props) => ({
     }px`,
     backgroundColor: props.$color || "yellow",
     opacity: props.$highOpacity ? TOKEN_OPACITY_HIGH : TOKEN_OPACITY_LOW,
-    display: props.$hidden ? "none" : "block",
-    boxShadow: props.$hidden
-      ? "none"
-      : `0 0 ${TOKEN_SHADOW_BLUR}px ${TOKEN_SHADOW_SPREAD}px ${
-          props.$color || "rgba(255,255,0,0.15)"
-        }`,
+    display: "block",
+    boxShadow: `0 0 ${TOKEN_SHADOW_BLUR}px ${TOKEN_SHADOW_SPREAD}px ${
+      props.$color || "rgba(255,255,0,0.15)"
+    }`,
   },
 }))<SelectionBoxProps>`
   position: absolute;
@@ -88,7 +85,6 @@ export interface TokenGroupProps {
     | "data-rca-pending-token"
     | "data-rca-drag-token";
   color?: string;
-  hidden?: boolean;
   /** The page at the current zoom. */
   pageInfo: PDFPageInfo;
   highOpacity?: boolean;
@@ -99,7 +95,6 @@ export function TokenGroup({
   ownerId,
   attribute = "data-rca-token",
   color,
-  hidden,
   pageInfo,
   highOpacity,
   tokens,
@@ -116,7 +111,6 @@ export function TokenGroup({
           <SelectionBox
             key={i}
             {...{ [attribute]: ownerId }}
-            $hidden={hidden}
             $highOpacity={highOpacity}
             $color={color ? color : undefined}
             $left={b.left}

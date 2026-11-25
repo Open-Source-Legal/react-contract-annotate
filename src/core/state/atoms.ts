@@ -59,7 +59,6 @@ export const zoomAtom = atom<number>(1);
 /** True once the initial zoom (e.g. fit-to-width) has been resolved. */
 export const zoomInitialisedAtom = atom<boolean>(false);
 export const activeHighlightIdAtom = atom<string | null>(null);
-export const hoveredAnnotationIdAtom = atom<string | null>(null);
 
 /**
  * The text selection the user has just completed and nobody has committed or

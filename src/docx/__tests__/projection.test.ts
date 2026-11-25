@@ -16,7 +16,6 @@ import {
 } from "../constants";
 import {
   buildProjection,
-  buildProjectionSet,
   suppressedTargets,
   withoutIndentation,
 } from "../projection";
@@ -103,7 +102,7 @@ function input({
 }
 
 function project(options: Input = {}) {
-  return buildProjectionSet(input(options));
+  return buildProjection(input(options)).set;
 }
 
 const ids = (set: ReturnType<typeof project>) =>

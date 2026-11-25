@@ -23,11 +23,6 @@ export const FIT_WIDTH_MARGIN = 16;
 /** Colour of the text-block deep-link highlight. */
 export const TEXT_BLOCK_HIGHLIGHT_COLOR = "#0EA5E9";
 
-/** Name of the label that marks an annotation as a hyperlink. */
-export const OC_URL_LABEL = "OC_URL";
-/** Default presentation colour of the `OC_URL` label. */
-export const OC_URL_LABEL_COLOR = "#2563EB";
-
 // Reference-mention label codes the enrichment pipeline emits.
 export const OC_REF_LAW_LABEL = "OC_REF_LAW";
 export const OC_REF_DOC_LABEL = "OC_REF_DOC";
@@ -124,8 +119,11 @@ export const SCROLL_SETTLE_FRAMES = 10;
 export const ESCAPE_KEY = "Escape";
 
 /**
- * Defaults of the theming custom properties the shell defines on its root.
- * Renderers read them as `var(--rca-…, <same default>)`.
+ * Defaults of the theming custom properties the shell defines on its root,
+ * defined here only: the formats' layers, inside the root, read them as
+ * `var(--rca-…)`; what is portalled out of it (the selection menu) gets the
+ * root's resolved value; and `LabelChip`, which a format may render
+ * anywhere, falls back to the default from here.
  */
 export const THEME_DEFAULTS = {
   /** `--rca-font-family`: OpenContracts' body font stack (index.css). */

@@ -50,7 +50,6 @@ import type {
 import {
   ANNOTATION_LABEL_FONT_SIZE,
   ANNOTATION_LABEL_FONT_WEIGHT,
-  HIGHLIGHT_Z_INDEX,
 } from "./constants";
 import { highlightPageBounds, highlightTokenIds } from "./highlightBounds";
 import type { PDFPageInfo } from "./PDFPageInfo";
@@ -65,7 +64,8 @@ const SPAN_WARNING =
   '(they index into the text of a DOCX); they are ignored. Use "tokens" ' +
   'or "bounds" targets for a PDF.';
 
-const HIGHLIGHT_Z_INDEX_VALUE = `var(--rca-z-highlight, ${HIGHLIGHT_Z_INDEX})`;
+/** The stacking of a highlight box (defined on the root). */
+const HIGHLIGHT_Z_INDEX_VALUE = "var(--rca-z-highlight)";
 
 // The bar above the box that holds the chip: out of the way of the pointer,
 // right-aligned to the box, in the annotations' label type.

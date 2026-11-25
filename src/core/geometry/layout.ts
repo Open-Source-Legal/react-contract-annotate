@@ -1,29 +1,6 @@
 import { SELECTION_MENU } from "../constants";
 
 /**
- * Returns a CSS ``bottom`` value that floats above the on-screen keyboard /
- * shrunken visual viewport on mobile.
- *
- * Falls back to ``baseOffset`` when neither ``--oc-dkb-visible-viewport-height``
- * (set inside DocumentKnowledgeBase) nor ``--oc-visible-viewport-height``
- * (set globally in index.css) is available.
- */
-export const visualViewportAwareBottom = (baseOffset: string): string =>
-  `max(${baseOffset}, calc(100vh - var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) - var(--oc-dkb-visible-viewport-offset-top, 0px) + ${baseOffset}))`;
-
-export const determineCardColCount = (viewport_width: number): number => {
-  // More responsive breakpoints for better card sizing
-  if (viewport_width < 480) return 1; // Mobile
-  if (viewport_width < 768) return 2; // Tablet portrait
-  if (viewport_width < 1024) return 3; // Tablet landscape
-  if (viewport_width < 1280) return 4; // Small desktop
-  if (viewport_width < 1600) return 5; // Medium desktop
-  if (viewport_width < 1920) return 6; // Large desktop
-  if (viewport_width < 2560) return 7; // Ultra-wide
-  return 8; // 4K and beyond
-};
-
-/**
  * Clamp a context-menu position so the menu stays fully inside the viewport.
  *
  * The menu is initially placed `offset` pixels to the right/below the cursor.

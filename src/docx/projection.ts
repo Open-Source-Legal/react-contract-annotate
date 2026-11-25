@@ -139,13 +139,6 @@ export interface Projection {
   gaveWay: ReadonlySet<string>;
 }
 
-/** The projection set alone (see `buildProjection`). */
-export function buildProjectionSet(
-  input: ProjectionInput
-): ExternalAnnotationSet {
-  return buildProjection(input).set;
-}
-
 export function buildProjection({
   text,
   annotations,

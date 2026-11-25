@@ -4,9 +4,9 @@
  * `components/annotator/types/pdf.ts`, without `getAnnotationForBounds` /
  * `getFreeFormAnnotationForBounds` (the library builds drafts from
  * `getPageAnnotationJson`). `convertAnnotationTokensToText` moved here from
- * `components/annotator/utils.ts`. Neither `getPageAnnotationJson` nor
- * `getBoundsForTokens` needs the page's `bounds` (OpenContracts guarded on
- * them but never read them; the loader builds pages without), and
+ * `components/annotator/utils.ts`. The page's `bounds` and
+ * `getScreenSpaceBounds` are gone (OpenContracts guarded on the bounds but
+ * never read them, and nothing here needs screen-space bounds), and
  * `getBoundsForTokens` returns undefined when no token qualifies.
  */
 import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
@@ -43,8 +43,7 @@ export class PDFPageInfo {
   constructor(
     public readonly page: PDFPageProxy,
     public readonly tokens: PawlsToken[] = [],
-    public scale: number,
-    public bounds?: BoundingBox
+    public scale: number
   ) {
     this.viewport = page.getViewport({ scale: 1 });
   }
@@ -184,21 +183,9 @@ export class PDFPageInfo {
     return scaled(b, this.scale);
   }
 
-  getScreenSpaceBounds(b: BoundingBox): BoundingBox {
-    const scaledBounds = this.getScaledBounds(b);
-    const pageHeight = this.page.getViewport({ scale: this.scale }).height;
-
-    return {
-      left: scaledBounds.left,
-      top: pageHeight - scaledBounds.bottom,
-      right: scaledBounds.right,
-      bottom: pageHeight - scaledBounds.top,
-    };
-  }
-
   // Method to create a new instance with an updated scale
   public withScale(newScale: number): PDFPageInfo {
-    return new PDFPageInfo(this.page, this.tokens, newScale, this.bounds);
+    return new PDFPageInfo(this.page, this.tokens, newScale);
   }
 }
 

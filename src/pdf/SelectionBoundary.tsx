@@ -23,7 +23,6 @@ import { computeAnnotationBoxShadow, hexToRgb } from "../core/index";
 import type { BoundingBox } from "../core/index";
 import {
   ANNOTATION_BOUNDARY_RADIUS,
-  ANNOTATION_Z_INDEX,
   APPROVED_RGB,
   BOUNDARY_OPACITY_SELECTED,
   BOUNDARY_OPACITY_UNSELECTED,
@@ -33,8 +32,6 @@ import {
 import { pulseGreen, pulseMaroon } from "./effects";
 
 interface SelectionBoundaryProps {
-  /** Default false. */
-  hidden?: boolean;
   showBoundingBox?: boolean;
   color: string;
   bounds: BoundingBox;
@@ -63,7 +60,7 @@ interface SelectionBoundaryProps {
   rejected?: boolean;
   /** `data-*` attributes set on the box element (the DOM contract). */
   dataAttributes?: Record<`data-${string}`, string>;
-  /** CSS `z-index` of the box. Default `var(--rca-z-annotation, 2)`. */
+  /** CSS `z-index` of the box. Default `var(--rca-z-annotation)`. */
   zIndex?: string;
   /**
    * When true the box takes no pointer events, so what is under it stays
@@ -73,7 +70,8 @@ interface SelectionBoundaryProps {
   passive?: boolean;
 }
 
-const ANNOTATION_Z_INDEX_VALUE = `var(--rca-z-annotation, ${ANNOTATION_Z_INDEX})`;
+/** The stacking of an annotation box (defined on the root). */
+const ANNOTATION_Z_INDEX_VALUE = "var(--rca-z-annotation)";
 
 const BoundarySpan = styled.span.attrs<{
   $width: number;
@@ -134,7 +132,6 @@ function isModifierClick(event: ReactMouseEvent): boolean {
 }
 
 export function SelectionBoundary({
-  hidden = false,
   showBoundingBox = false,
   color,
   bounds,
@@ -159,17 +156,14 @@ export function SelectionBoundary({
   const rotateX = height < 0 ? -180 : 0;
   const { r, g, b } = hexToRgb(color);
   // Fill ignores showBoundingBox so multi-line inter-row gaps don't stripe through as white.
-  const opacity = hidden
-    ? 0
-    : selected
-      ? BOUNDARY_OPACITY_SELECTED
-      : BOUNDARY_OPACITY_UNSELECTED;
+  const opacity = selected
+    ? BOUNDARY_OPACITY_SELECTED
+    : BOUNDARY_OPACITY_UNSELECTED;
   const backgroundColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
 
-  const boxShadow =
-    showBoundingBox && !hidden
-      ? computeAnnotationBoxShadow(r, g, b, selected)
-      : "none";
+  const boxShadow = showBoundingBox
+    ? computeAnnotationBoxShadow(r, g, b, selected)
+    : "none";
 
   const handleClick = (e: ReactMouseEvent) => {
     const press = pressRef.current;
@@ -199,8 +193,8 @@ export function SelectionBoundary({
       {...dataAttributes}
       onClick={handleClick}
       onMouseDown={handleMouseDown}
-      onMouseEnter={onHover && !hidden ? () => onHover(true) : undefined}
-      onMouseLeave={onHover && !hidden ? () => onHover(false) : undefined}
+      onMouseEnter={onHover ? () => onHover(true) : undefined}
+      onMouseLeave={onHover ? () => onHover(false) : undefined}
       $width={width}
       $height={height}
       $rotateX={rotateX}

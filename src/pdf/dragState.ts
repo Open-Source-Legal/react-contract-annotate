@@ -29,8 +29,8 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 
+import { ESCAPE_KEY } from "../core/index";
 import type { BoundingBox } from "../core/index";
-import { ESCAPE_KEY } from "./constants";
 import type { PDFPageInfo } from "./PDFPageInfo";
 
 export interface PdfDragState {

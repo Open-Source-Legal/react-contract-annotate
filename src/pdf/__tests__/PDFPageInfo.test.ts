@@ -31,13 +31,6 @@ function makeToken(
   return { x, y, width, height, text, ...extra };
 }
 
-const PAGE_BOUNDS: BoundingBox = {
-  left: 0,
-  top: 0,
-  right: 612,
-  bottom: 792,
-};
-
 const FULL_PAGE_SELECTION: BoundingBox = {
   left: 0,
   top: 0,
@@ -54,8 +47,7 @@ describe("PDFPageInfo", () => {
       const pageInfo = new PDFPageInfo(
         makeFakePageProxy(1),
         [realToken, phantomToken],
-        1,
-        PAGE_BOUNDS
+        1
       );
 
       const result = pageInfo.getPageAnnotationJson([FULL_PAGE_SELECTION]);
@@ -78,8 +70,7 @@ describe("PDFPageInfo", () => {
       const pageInfo = new PDFPageInfo(
         makeFakePageProxy(1),
         [realToken, pageImage],
-        1,
-        PAGE_BOUNDS
+        1
       );
 
       const result = pageInfo.getPageAnnotationJson([FULL_PAGE_SELECTION]);
@@ -99,8 +90,7 @@ describe("PDFPageInfo", () => {
       const pageInfo = new PDFPageInfo(
         makeFakePageProxy(1),
         [realToken, phantomToken],
-        1,
-        PAGE_BOUNDS
+        1
       );
 
       const selectedTokens = [
@@ -124,8 +114,7 @@ describe("PDFPageInfo", () => {
       const pageInfo = new PDFPageInfo(
         makeFakePageProxy(1),
         [imageToken],
-        1,
-        PAGE_BOUNDS
+        1
       );
 
       const result = pageInfo.getPageAnnotationJson([FULL_PAGE_SELECTION]);
@@ -141,8 +130,7 @@ describe("PDFPageInfo", () => {
       const pageInfo = new PDFPageInfo(
         makeFakePageProxy(1),
         [realToken, whitespaceToken],
-        1,
-        PAGE_BOUNDS
+        1
       );
 
       const result = pageInfo.getPageAnnotationJson([FULL_PAGE_SELECTION]);
@@ -158,8 +146,7 @@ describe("PDFPageInfo", () => {
       const pageInfo = new PDFPageInfo(
         makeFakePageProxy(1),
         [realToken, emptySmall],
-        1,
-        PAGE_BOUNDS
+        1
       );
 
       const result = pageInfo.getPageAnnotationJson([FULL_PAGE_SELECTION]);
@@ -176,8 +163,7 @@ describe("PDFPageInfo", () => {
       const pageInfo = new PDFPageInfo(
         makeFakePageProxy(1),
         [token],
-        1,
-        PAGE_BOUNDS
+        1
       );
 
       const selection: BoundingBox = {
@@ -200,8 +186,7 @@ describe("PDFPageInfo", () => {
       const pageInfo = new PDFPageInfo(
         makeFakePageProxy(1),
         [token1, token2],
-        1,
-        PAGE_BOUNDS
+        1
       );
 
       const selection: BoundingBox = {
