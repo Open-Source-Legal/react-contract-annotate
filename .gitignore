@@ -1,0 +1,17 @@
+node_modules
+dist
+test-results
+playwright-report
+playwright/.cache
+coverage
+*.tsbuildinfo
+.superpowers/
+
+# Yarn 4 (node-modules linker): commit only what Yarn documents as shareable
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions

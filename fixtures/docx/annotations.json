@@ -1,0 +1,63 @@
+[
+  {
+    "id": "d-1",
+    "annotationLabel": {
+      "id": "label-1",
+      "text": "Important Clause",
+      "color": "#FF6B6B",
+      "description": "Marks important clauses",
+      "icon": "tag"
+    },
+    "rawText": "Hello World",
+    "json": {
+      "start": 0,
+      "end": 11
+    }
+  },
+  {
+    "id": "d-2",
+    "annotationLabel": {
+      "id": "label-2",
+      "text": "Definition",
+      "color": "#4ECDC4",
+      "description": "Marks definitions",
+      "icon": "tag"
+    },
+    "rawText": "Important Clause",
+    "json": {
+      "start": 84,
+      "end": 100
+    }
+  },
+  {
+    "id": "d-3",
+    "annotationLabel": {
+      "id": "label-1",
+      "text": "Important Clause",
+      "color": "#FF6B6B",
+      "description": "Marks important clauses",
+      "icon": "tag"
+    },
+    "rawText": "The Definition",
+    "json": {
+      "start": 127,
+      "end": 141
+    },
+    "structural": true
+  },
+  {
+    "id": "d-bad-span",
+    "annotationLabel": {
+      "id": "label-1",
+      "text": "Important Clause",
+      "color": "#FF6B6B",
+      "description": "Marks important clauses",
+      "icon": "tag"
+    },
+    "rawText": "",
+    "json": {
+      "start": 10000000,
+      "end": 10000010
+    }
+  }
+]

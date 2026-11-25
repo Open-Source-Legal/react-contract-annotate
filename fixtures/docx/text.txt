@@ -1,0 +1,3 @@
+Hello World. This is a sample DOCX document for testing.
+This paragraph contains an Important Clause that should be annotated.
+The Definition section explains key terms used throughout.

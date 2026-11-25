@@ -1,0 +1,75 @@
+{
+  "name": "@os-legal/react-contract-annotate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Control-free React viewer/annotator for OpenContracts annotations on PDF and DOCX",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "yarn@4.13.0",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./pdf": {
+      "types": "./dist/pdf/index.d.ts",
+      "import": "./dist/pdf/index.js"
+    },
+    "./docx": {
+      "types": "./dist/docx/index.d.ts",
+      "import": "./dist/docx/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:ct": "playwright test -c playwright-ct.config.ts --reporter=list",
+    "lint:imports": "node scripts/check-imports.mjs"
+  },
+  "peerDependencies": {
+    "docxodus": "~12.4.1",
+    "pdfjs-dist": "^6.5.438",
+    "react": ">=18",
+    "react-dom": ">=18",
+    "styled-components": "^6"
+  },
+  "peerDependenciesMeta": {
+    "docxodus": {
+      "optional": true
+    },
+    "pdfjs-dist": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "dompurify": "^3.4.18",
+    "jotai": "^3.0.1"
+  },
+  "devDependencies": {
+    "@playwright/experimental-ct-react": "1.62.1",
+    "@playwright/test": "1.62.1",
+    "@testing-library/react": "15.0.7",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^6.3.0",
+    "docxodus": "12.4.1",
+    "jsdom": "^26",
+    "pdfjs-dist": "^6.5.438",
+    "react": "^18",
+    "react-dom": "^18",
+    "styled-components": "^6.6.0",
+    "tsup": "^8",
+    "typescript": "^5.5",
+    "vite": "^8.1.0",
+    "vitest": "^5"
+  }
+}

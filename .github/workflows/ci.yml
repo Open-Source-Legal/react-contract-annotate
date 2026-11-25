@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install
+        run: yarn install --immutable
+      - name: Lint imports
+        run: yarn lint:imports
+      - name: Typecheck
+        run: yarn typecheck
+      - name: Unit tests
+        run: yarn test
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Component tests
+        run: yarn test:ct
+      - name: Build
+        run: yarn build
