@@ -458,7 +458,9 @@ Initial zoom is fit-to-width (existing `computeFitToWidthZoom`) unless
 **DOCX.** Existing convert-once / project-many pipeline: convert with
 docxodus, sanitise with DOMPurify, project annotations and highlights,
 toggle label visibility with generated CSS, paginate with
-`docxodus/react`'s `PaginatedDocument`. The existing DOM-offset
+`docxodus/react`'s `usePagination` (the hook under its
+`PaginatedDocument`, used directly so a pagination failure reaches
+`onError`). The existing DOM-offset
 disambiguation for repeated text is kept. Its built-in selection menu is
 replaced by the shared selection behaviour above.
 
