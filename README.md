@@ -27,7 +27,10 @@ each other.
 yarn add @os-legal/react-contract-annotate     # or: npm install @os-legal/react-contract-annotate
 ```
 
-The package is ESM only and needs a bundler (Vite, webpack and the like).
+The package is ESM only. The root, `./core` and `./pdf` entries can also be
+imported by Node itself (a test runner or a server that does not bundle its
+dependencies); `./docx` needs a bundler, because docxodus 12.4.1's own entry
+has an import Node does not resolve.
 
 Peer dependencies:
 

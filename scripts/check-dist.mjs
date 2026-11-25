@@ -15,9 +15,13 @@
 // and over the type declarations:
 //   - each of the four entries has a `.js` and a `.d.ts`;
 //   - no `.d.ts` mentions jotai (the state library is private to the package).
+// Last, the entries a Node process can load are loaded by this one: the
+// root, `core` and `pdf` (what a test runner or a server does when it does
+// not bundle its dependencies). `docx` is left out: docxodus' own entry
+// (12.4.1) has an import Node does not resolve.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const distRoot = path.resolve(
@@ -44,6 +48,9 @@ const ENTRIES = [
   { name: "docx", file: "docx/index.js", forbidden: PDF_ENGINE },
   { name: "root", file: "index.js", forbidden: [...PDF_ENGINE, ...DOCX_ENGINE] },
 ];
+
+/** The entries Node itself must be able to import (see the header). */
+const NODE_IMPORTABLE = ["index.js", "core/index.js", "pdf/index.js"];
 
 /** What the dispatcher must load lazily. */
 const LAZY_ENGINES = ["pdf/index.js", "docx/index.js"];
@@ -211,6 +218,17 @@ for (const file of files.filter((f) => f.endsWith(".js"))) {
 for (const file of files.filter((f) => f.endsWith(".d.ts"))) {
   if (PRIVATE_DEPENDENCY_IN_TYPES.test(readFileSync(file, "utf8"))) {
     fail(`${rel(file)} mentions jotai, which must stay private`);
+  }
+}
+
+// Node can load the entries that do not need docxodus.
+for (const file of NODE_IMPORTABLE) {
+  const entry = path.join(distRoot, file);
+  if (!existsSync(entry)) continue;
+  try {
+    await import(pathToFileURL(entry).href);
+  } catch (error) {
+    fail(`Node cannot import dist/${file}: ${String(error?.message ?? error).split("\n")[0]}`);
   }
 }
 

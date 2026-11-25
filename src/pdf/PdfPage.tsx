@@ -25,10 +25,10 @@
  * page).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import styled from "styled-components";
 
 import {
   centreBox,
+  styled,
   useAllAnnotations,
   useHighlights,
   useRootElement,

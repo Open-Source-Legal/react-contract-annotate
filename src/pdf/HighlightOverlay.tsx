@@ -29,12 +29,12 @@
  * `Highlight.color`).
  */
 import { useEffect, useMemo, useState } from "react";
-import styled from "styled-components";
 
 import {
   highlightColor,
   isSpanHighlight,
   LabelChip,
+  styled,
   useActiveHighlightId,
   useDevWarnOnce,
   useDisplaySettings,
