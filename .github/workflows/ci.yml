@@ -30,3 +30,7 @@ jobs:
         run: yarn build
       - name: Check dist
         run: yarn check:dist
+      - name: Install demo
+        run: yarn --cwd examples/demo install --immutable
+      - name: Build demo
+        run: yarn --cwd examples/demo build

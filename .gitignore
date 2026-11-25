@@ -15,3 +15,6 @@ coverage
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# The demo is its own Yarn project (examples/demo); its install state is not committed
+examples/demo/.yarn/

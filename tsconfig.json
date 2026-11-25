@@ -14,5 +14,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["vitest/globals"]
   },
-  "include": ["src", "ct-tests", "playwright", "scripts"]
+  "include": ["src", "ct-tests", "playwright", "scripts"],
+  "exclude": ["scripts/parity"]
 }
