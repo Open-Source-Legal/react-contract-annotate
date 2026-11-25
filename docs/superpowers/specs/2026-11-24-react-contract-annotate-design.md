@@ -41,6 +41,9 @@ either **controlled** by the host or **managed internally**.
 - Migrating OpenContracts to consume the library. OpenContracts is not touched.
   (Expected follow-up; the API should not make it impossible.)
 - Any built-in toolbar, label picker, sidebar, modal or menu.
+- Zoom gestures (Ctrl+wheel, pinch, keyboard). In OpenContracts these live
+  outside the annotator (`document_kb/useZoomManager.ts`) on document-level
+  listeners. The host drives zoom through props or the handle.
 - Plain-text / markdown renderers. The span model is shared with DOCX so TXT
   is the expected next format, but it is not built now.
 - Fetching annotations, GraphQL, auth, permissions, persistence, undo.
@@ -59,11 +62,14 @@ either **controlled** by the host or **managed internally**.
 - Geometry drift: an annotation must land on the same pixels as it does in
   OpenContracts at the same zoom.
 - A "rewrite for cleanliness" of the virtualization, zoom-render coordination
-  or two-phase scroll code. Those are moved, not redesigned.
+  or two-phase scroll *mechanics*. Those are moved, not redesigned. (What
+  *triggers* a scroll does change; see "Scroll requests".)
 
 ## Constraints
 
-- Source of truth for the port is OpenContracts `main` as of 2026-11-24.
+- Source of truth for the port is OpenContracts **`origin/main` at
+  `98286cabf`** (2026-11-20). Port from a checkout of that commit, not from a
+  feature branch: older branches are still on the pdf.js 4 API.
   Key files: `renderers/pdf/{PDF,PDFPage,SelectionLayer,NativeLinkLayer}.tsx`,
   `display/components/*`, `types/{pdf,annotations}.ts`,
   `renderers/docx/{DocxAnnotator.tsx,docxOffsetUtils.ts}`,
@@ -73,8 +79,11 @@ either **controlled** by the host or **managed internally**.
   `pdfZoom.ts`, `layout.ts`, plus `annotator/utils.ts`
   (`createTokenStringSearch`, `convertAnnotationTokensToText`).
 - React 18+. styled-components 6 (already used by the ported code).
-- pdf.js: OpenContracts runs `pdfjs-dist` 4.10.x. DOCX: `docxodus` 12.4.1
-  (MIT, WASM). DOCX offsets only line up when the client engine matches the
+- pdf.js: OpenContracts `main` runs `pdfjs-dist` ^6.5.438 and imports the
+  runtime from `pdfjs-dist/legacy/build/pdf.mjs`; the ported code uses
+  6-only calls (`page.render({ canvas, viewport })`,
+  `convertToViewportPoint`). The library targets pdf.js 6 and the same
+  `legacy/build` entry. DOCX: `docxodus` 12.4.1 (MIT, WASM). DOCX offsets only line up when the client engine matches the
   version that parsed the document on the server, so the docxodus range is
   kept narrow.
 - License MIT, matching OpenContracts and `caml`. Keep the AllenAI PAWLS
@@ -227,7 +236,7 @@ interface AnnotatorCommonProps<TMeta = unknown> {
   showSelectedOnly?: boolean;                  // default false
   showBoundingBoxes?: boolean;                 // default true
   labelDisplay?: "always" | "hover" | "hide";  // default "hover"
-  visibleLabelIds?: string[] | null;           // null = all labels
+  visibleLabelIds?: string[] | null;           // null, undefined or [] = no filter (as today)
   scrollOnSelect?: boolean;                    // default true
 
   // creating annotations
@@ -282,6 +291,12 @@ commit(label?), clear(), copyText() }`.
 `activeLabel`). The library never adds the draft to `annotations` itself; the
 host does, by passing a new array.
 
+The pending selection is **viewer-level state in the store**, not local
+state of a page's `SelectionLayer` as it is today, so it survives its page
+leaving the virtual window and is what the handle and slot read. Shift-drag
+regions on different pages merge into one multipage draft *(my call — it is
+what the multipage JSON is for)*.
+
 Kept from the existing selection code: multi-region selection on PDF,
 long-press selection on touch, the double-fire guard on mouse-up, Escape to
 cancel. Removed: the built-in menu, its keyboard shortcuts, "copy link", the
@@ -290,9 +305,22 @@ cancel. Removed: the built-in menu, its keyboard shortcuts, "copy link", the
 **Rendered annotations** show their box, token highlights and (per
 `labelDisplay`) a label chip with the label text. The radial action cloud,
 pencil, trash, approve/reject buttons and both modals are gone;
-`renderAnnotationActions` puts host content inside the chip. Clicking an
-annotation toggles it in the selection and calls `onAnnotationClick`.
-`approved` / `rejected` still change the box styling. When a relation in
+`renderAnnotationActions` puts host content inside the chip.
+`approved` / `rejected` still change the box styling.
+
+**Clicks keep each format's current model** *(my call — this is an
+extraction, and on PDF a box that swallowed plain mouse-downs would stop users
+drag-selecting text under an annotation; structural annotations cover every
+paragraph):*
+
+- PDF: Shift-click (or Ctrl/Cmd-click) toggles the annotation in the
+  selection. A plain press passes through to the selection layer, which
+  starts a text selection and clears the current annotation selection.
+- DOCX: plain click replaces the selection, Ctrl/Cmd-click toggles, a click
+  on empty text clears.
+- `onAnnotationClick` fires for *every* click that lands on an annotation
+  without a drag, with or without modifiers, on both formats. A host that
+  wants plain-click-to-select on PDF calls `selectAnnotations` from it. When a relation in
 `selectedRelationIds` is shown, its endpoints keep the SOURCE / TARGET badges
 and are forced visible, as today.
 
@@ -306,10 +334,31 @@ selected annotations and endpoints of selected relations are always shown;
 then `showSelectedOnly`, `showStructural`, and the `visibleLabelIds` filter
 apply.
 
-**Selecting scrolls.** When the selection changes through props or the handle
-and `scrollOnSelect` is on, the viewer scrolls to the first selected
-annotation (existing two-phase scroll: bring the page into the virtual window,
-then centre the element once it mounts). User clicks do not trigger a scroll.
+**Scroll requests.** In OpenContracts, scroll-to-annotation is an effect in
+`PDF.tsx` keyed on selection, zoom, page heights and the identity of the
+annotations array, so it also fires on user clicks, on every zoom change and
+whenever a new array arrives; the centring step is an unbounded
+`requestAnimationFrame` retry using `document.querySelector` and
+`scrollIntoView`. The library replaces that trigger with one explicit scroll
+request held in the store (`{ target, behavior, settle }`), and keeps the
+mechanics: stretch the virtual window to include the target page, scroll the
+page into view, then centre the element once it has mounted. A request is
+raised by exactly:
+
+1. the selection changing through props or the handle while `scrollOnSelect`
+   is on (first selected annotation);
+2. a selection already present when the document finishes loading — the
+   deep-link case. If the selected id is not in `annotations` yet, the request
+   waits until it is;
+3. the active highlight changing through props or the handle;
+4. `scrollToAnnotation` / `scrollToHighlight` / `scrollToPage`.
+
+A newer request cancels an older one. User clicks, zoom changes and a new
+`annotations` array do **not** scroll *(my call; today zoom re-centres the
+selection as a side effect of the effect's dependencies)*. Centring scrolls
+the instance's own scroll container by computed offset rather than calling
+`scrollIntoView`, so host ancestors do not move; the window-scroll fallback
+may keep `scrollIntoView`.
 
 ## The handle
 
@@ -348,8 +397,9 @@ Setters on controlled state call the matching `on…Change` and do not mutate
 internal state; the host's next render applies the value. `findText` returns
 highlights the host can pass back through `highlights` (existing
 token-string search for PDF, substring search over `text` for DOCX).
-The scroll promises resolve once the target has been scrolled into view, and
-`false` if it never mounts within a bounded wait.
+The scroll promises resolve `true` once the target has been scrolled into
+view, and `false` if the id is unknown, the request is superseded, or the
+target never mounts within a bounded wait.
 
 ## Format-specific inputs
 
@@ -379,9 +429,11 @@ type DocumentInput =
 ```
 
 **PDF.** The component loads the document itself for `url` / `data` and
-reports progress to `renderLoading`. The host configures the pdf.js worker
-(`GlobalWorkerOptions.workerSrc`), documented in the README; the library does
-not import a worker file. PAWLs tokens go through the existing
+reports progress to `renderLoading`. The library does not import a worker
+file. Because `GlobalWorkerOptions` must be set on the same module instance
+the library loads documents with (`pdfjs-dist/legacy/build/pdf.mjs`), `…/pdf`
+exports `configurePdfWorker(workerSrc)` which sets it on that instance; the
+README shows the one-line Vite / webpack setup. PAWLs tokens go through the existing
 `resolvePageTokens` normalisation. Without `pawls` the pages and
 bounds-only annotations render, token highlights and text selection are off.
 Initial zoom is fit-to-width (existing `computeFitToWidthZoom`) unless
@@ -393,6 +445,27 @@ toggle label visibility with generated CSS, paginate with
 `docxodus/react`'s `PaginatedDocument`. The existing DOM-offset
 disambiguation for repeated text is kept. Its built-in selection menu is
 replaced by the shared selection behaviour above.
+
+**What DOCX supports at launch** *(my call — the existing DOCX renderer has
+less than the PDF one, and closing the whole gap is new work, not
+extraction):*
+
+| Common feature | PDF | DOCX |
+|---|---|---|
+| Annotations, selection (controlled or internal), `scrollToAnnotation` | yes | yes |
+| Highlights + active highlight + `scrollToHighlight` | yes | yes (new: today DOCX only scrolls to the selected annotation) |
+| Text selection → draft, `onTextSelect`, `renderSelectionMenu` | yes | yes |
+| `showStructural`, `visibleLabelIds`, `showSelectedOnly`, forced visibility of selected / relation endpoints | yes | yes (shared filter applied before projection) |
+| Zoom | yes | yes — a scale factor; `"fit-width"` resolves to 1 |
+| `getText`, `findText`, `onAnnotationClick`, `onAnnotationHover` | yes | yes |
+| `labelDisplay` | yes | `"hide"` vs shown only; no hover mode |
+| `renderAnnotationActions` | yes | **no** — the DOCX label chip is a CSS `::before`, not an element |
+| `approved` / `rejected` styling, SOURCE / TARGET badges | yes | **no** |
+| `linkUrl` click-to-open | yes | **no** |
+| `scrollToPage`, `getPageCount`, `getVisiblePageRange` | yes | returns `false` / `null` |
+
+Unsupported props are accepted and ignored on DOCX, with a one-time
+development warning, and the matrix is in the README.
 
 **Scrolling element.** The component's root is the scroll container and
 fills its parent; the parent must have a height. The existing fallback to
@@ -447,7 +520,7 @@ src/
 
 - **Unit (Vitest).** Port the tests that cover moved code:
   `types/__tests__/{pdf,annotations}`, `SelectionLayer.*` (minus the URL-modal
-  flow), `NativeLinkLayer`, `SelectionBoundary`, `ResultBoundary`,
+  flow, reworked for the store-level pending selection), `NativeLinkLayer`, `SelectionBoundary`, `ResultBoundary`,
   `getGlobalOffset`, `useVisibleAnnotations`, and the `transform` /
   `compactAnnotationJson` suites. New: controllable-state bridge,
   `fromOpenContractsExport`, highlight normalisation.
@@ -460,6 +533,8 @@ src/
   - drag-select → `onTextSelect` → each of the three outcomes, with the
     draft's token ids and text checked;
   - highlight activation + jump;
+  - scroll requests: prop-driven select scrolls, a user click does not, a
+    zoom change does not, a selection present at mount scrolls once loaded;
   - nothing but the document is rendered when no slots are given;
   - two viewers side by side stay independent;
   - DOCX: projection, selection → span draft, `scrollToAnnotation`.
@@ -480,8 +555,7 @@ the manual test bed and the README's usage example.
 - Internal file and atom names; how much of the ported classes survives
   behind the JSON API.
 - Exact CSS custom property names and defaults.
-- The `pdfjs-dist` peer range: start at `^4.7.0`; widen only for majors the
-  CT suite passes on.
+- The exact `pdfjs-dist` peer range within major 6 (start at `^6.5.438`).
 - The `docxodus` peer range around 12.4.x.
 - Whether the PAWLs / annotation fixtures for the two PDFs are captured from
   a running OpenContracts or generated another way.
