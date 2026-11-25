@@ -13,8 +13,9 @@
  * The page draws every visible token annotation that has bounds on it, once
  * its canvas has rendered. It also carries out the last step of a scroll
  * request for an annotation whose first page it is: once the box is under
- * the instance root, it centres it in the root and completes the request
- * (the viewport has already brought the page into view).
+ * the instance root, it scrolls it into view (`centreBox`) and completes the
+ * request when that scroll has landed (the viewport has already started
+ * scrolling to the page).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
@@ -29,6 +30,7 @@ import {
 } from "../core/index";
 import type { TokenAnnotation } from "../core/index";
 import { AnnotationBox } from "./AnnotationBox";
+import { centreBox } from "./centreBox";
 import { NativeLinkLayer } from "./NativeLinkLayer";
 import { isRenderingCancelled, PdfPageRenderer } from "./PdfPageRenderer";
 import type { PDFPageInfo } from "./PDFPageInfo";
@@ -100,36 +102,11 @@ function findBox(
 }
 
 /**
- * Sets the root's `scrollTop` / `scrollLeft`, computed from the offset
- * between the two, so the centre of `box` is at the centre of the root's
- * view. When the root does not scroll (the page does: the viewport's window
- * fallback), the box is scrolled into view instead. Either way the box is in
- * view when this returns.
- */
-function centreInRoot(root: HTMLElement, box: HTMLElement): void {
-  if (root.scrollHeight <= root.clientHeight) {
-    box.scrollIntoView({ block: "center", inline: "center" });
-    return;
-  }
-  const view = root.getBoundingClientRect();
-  const target = box.getBoundingClientRect();
-  const top =
-    root.scrollTop +
-    (target.top + target.height / 2) -
-    (view.top + root.clientTop + root.clientHeight / 2);
-  const left =
-    root.scrollLeft +
-    (target.left + target.width / 2) -
-    (view.left + root.clientLeft + root.clientWidth / 2);
-  root.scrollTop = Math.max(0, top);
-  root.scrollLeft = Math.max(0, left);
-}
-
-/**
  * The page's part of a scroll request for an annotation: when the target's
- * first page is this one and the page draws it, centre its box as soon as it
- * is under the root (retrying on animation frames while the request is
- * current), then complete the request.
+ * first page is this one and the page draws it, scroll its box into view
+ * with the request's behaviour as soon as it is under the root (retrying on
+ * animation frames while the request is current), and complete the request
+ * once that scroll has landed.
  */
 function useCentreScrollTarget(
   pageIndex: number,
@@ -149,20 +126,24 @@ function useCentreScrollTarget(
 
   useEffect(() => {
     if (!request || targetId === null || !rendered || !root) return;
-    const { seq } = request;
+    const { seq, behavior } = request;
     let frame = 0;
+    let stopWaiting = () => {};
     const attempt = () => {
       const box = findBox(root, targetId, pageIndex);
       if (!box) {
         frame = requestAnimationFrame(attempt);
         return;
       }
-      centreInRoot(root, box);
-      complete(seq, true);
+      stopWaiting = centreBox(root, box, behavior, () => complete(seq, true));
     };
     attempt();
-    // A newer request, or this page leaving the window, stops the retries.
-    return () => cancelAnimationFrame(frame);
+    // A newer request, or this page leaving the window, stops the retries
+    // and the wait for the scroll to land.
+    return () => {
+      cancelAnimationFrame(frame);
+      stopWaiting();
+    };
   }, [request, targetId, rendered, root, pageIndex, complete]);
 }
 

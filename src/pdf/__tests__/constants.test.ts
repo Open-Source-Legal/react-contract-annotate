@@ -15,6 +15,10 @@ test("ported values match OpenContracts", () => {
   expect(C.TOKEN_SHADOW_SPREAD).toBe(1);
   expect(C.TOKEN_EXPANSION_PX).toBe(1);
   expect(C.ANNOTATION_Z_INDEX).toBe(2);
+  expect(C.ANNOTATION_LABEL_FONT_WEIGHT).toBe("bold");
+  expect(C.ANNOTATION_LABEL_FONT_SIZE).toBe("12px");
+  expect(C.RELATION_BADGE_Z_INDEX).toBe(1);
+  expect(C.RELATION_BADGE_FONT_SIZE).toBe("0.75rem");
 });
 
 test("library additions", () => {
@@ -22,4 +26,6 @@ test("library additions", () => {
   expect(C.PAGE_OVERSCAN).toBe(2);
   expect(C.PAGE_RENDER_DEBOUNCE_MS).toBe(100);
   expect(C.CLICK_DRAG_TOLERANCE_PX).toBe(3);
+  expect(C.SCROLL_LANDED_TOLERANCE_PX).toBe(1);
+  expect(C.SCROLL_SETTLE_FRAMES).toBe(10);
 });

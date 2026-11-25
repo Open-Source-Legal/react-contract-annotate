@@ -58,6 +58,22 @@ export const TOKEN_EXPANSION_PX = 1;
  */
 export const ANNOTATION_Z_INDEX = 2;
 
+/**
+ * Text of the bar above an annotation box that holds the label chip
+ * (`SelectionInfo`): the fallbacks of `--rca-label-font-weight` and
+ * `--rca-label-font-size`.
+ */
+export const ANNOTATION_LABEL_FONT_WEIGHT = "bold";
+export const ANNOTATION_LABEL_FONT_SIZE = "12px";
+
+/**
+ * The SOURCE / TARGET relation badge: its stacking inside the label bar and
+ * the size of its tooltip text, the fallbacks of `--rca-z-relation-badge`
+ * and `--rca-relation-badge-font-size`.
+ */
+export const RELATION_BADGE_Z_INDEX = 1;
+export const RELATION_BADGE_FONT_SIZE = "0.75rem";
+
 // ---------------------------------------------------------------------------
 // Library additions
 // ---------------------------------------------------------------------------
@@ -77,3 +93,13 @@ export const PAGE_RENDER_DEBOUNCE_MS = 100;
  * annotation for the press to count as a click rather than a drag.
  */
 export const CLICK_DRAG_TOLERANCE_PX = 3;
+/**
+ * Distance (px) from its target at which a scroll to an annotation counts as
+ * landed (browsers round scroll offsets).
+ */
+export const SCROLL_LANDED_TOLERANCE_PX = 1;
+/**
+ * Animation frames the scroll position must hold still for a scroll to count
+ * as landed when no `scrollend` arrives (browsers without it).
+ */
+export const SCROLL_SETTLE_FRAMES = 10;

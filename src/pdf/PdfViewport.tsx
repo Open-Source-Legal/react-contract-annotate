@@ -13,9 +13,10 @@
  * pending selection; and the three effects that scrolled on selection,
  * search and chat changes are gone (scrolling is driven by scroll requests).
  *
- * A scroll request for an annotation starts here: the viewport jumps to the
- * target's first page at once (a layout effect, so it lands before the
- * page's own effect centres the box), then the page completes the request.
+ * A scroll request for an annotation starts here: the viewport scrolls to
+ * the target's first page with the request's behaviour (in a layout effect,
+ * so it starts before the page's own effect scrolls to the box, which
+ * replaces it), then the page completes the request.
  */
 import {
   useCallback,
@@ -307,15 +308,15 @@ export function PdfViewport({
     return true;
   };
 
-  /* a scroll request for an annotation: jump to its first page */
+  /* a scroll request for an annotation: scroll to its first page */
   useLayoutEffect(() => {
-    const target = request?.target;
-    if (target?.kind !== "annotation") return;
+    if (request?.target.kind !== "annotation") return;
+    const target = request.target;
     const annotation = allAnnotations.find((a) => a.id === target.id);
     const firstPage = annotation ? annotationPages(annotation)[0] : undefined;
-    // Instant, like the page's centring that follows: the request completes
-    // with the box in view.
-    if (firstPage !== undefined) scrollToPage(firstPage, "instant");
+    // The page scrolls to the box next; its scroll replaces this one, and
+    // the request keeps the page mounted until then.
+    if (firstPage !== undefined) scrollToPage(firstPage, request.behavior);
     // Keyed on the request only: one jump per request.
   }, [request]);
 

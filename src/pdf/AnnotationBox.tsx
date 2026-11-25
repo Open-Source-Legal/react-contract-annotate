@@ -24,6 +24,10 @@
  * (relation selection no longer selects its endpoints); and the box is never
  * hidden in place, because visibility is decided by `useVisibleAnnotations`
  * alone.
+ *
+ * Theming (custom properties, defaulting to OpenContracts' values):
+ * `--rca-label-font-weight` / `--rca-label-font-size` for the label bar,
+ * `--rca-z-relation-badge` / `--rca-relation-badge-font-size` for the badge.
  */
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
@@ -43,7 +47,13 @@ import {
   useSetControllable,
 } from "../core/index";
 import type { ChangeInfo, Relation, TokenAnnotation } from "../core/index";
-import { ANNOTATION_BOUNDARY_RADIUS } from "./constants";
+import {
+  ANNOTATION_BOUNDARY_RADIUS,
+  ANNOTATION_LABEL_FONT_SIZE,
+  ANNOTATION_LABEL_FONT_WEIGHT,
+  RELATION_BADGE_FONT_SIZE,
+  RELATION_BADGE_Z_INDEX,
+} from "./constants";
 import type { PDFPageInfo } from "./PDFPageInfo";
 import { SelectionBoundary } from "./SelectionBoundary";
 import { TokenGroup } from "./TokenGroup";
@@ -83,7 +93,7 @@ const RelationshipIndicator = styled.div<{ $type: RelationRole }>`
   };
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   cursor: help;
-  z-index: 1; // Ensure it's above other elements
+  z-index: var(--rca-z-relation-badge, ${RELATION_BADGE_Z_INDEX}); // Ensure it's above other elements
 
   /* Create tooltip */
   &::before {
@@ -95,7 +105,7 @@ const RelationshipIndicator = styled.div<{ $type: RelationRole }>`
     color: white;
     padding: 2px 6px;
     border-radius: 3px;
-    font-size: 0.75rem;
+    font-size: var(--rca-relation-badge-font-size, ${RELATION_BADGE_FONT_SIZE});
     white-space: nowrap;
     opacity: 0;
     pointer-events: none; // Prevent tooltip from interfering with hover
@@ -137,8 +147,8 @@ const SelectionInfo = styled.div<{
   background: ${(props) =>
     props.$showBoundingBox ? props.$color : "transparent"};
   padding: 1px 8px;
-  font-weight: bold;
-  font-size: 12px;
+  font-weight: var(--rca-label-font-weight, ${ANNOTATION_LABEL_FONT_WEIGHT});
+  font-size: var(--rca-label-font-size, ${ANNOTATION_LABEL_FONT_SIZE});
   user-select: none;
   box-sizing: border-box;
   transition: all 0.4s ease-in-out;

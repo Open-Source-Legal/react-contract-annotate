@@ -10,8 +10,9 @@
  *
  * Changed from OpenContracts: a click goes through `useOpenLink` (the host's
  * `onOpenLink` with source `"native"`, else a new `noopener` tab for http(s)
- * only), and a failure to read the page's annotations after the page left
- * the view is not reported.
+ * only), a failure to read the page's annotations after the page left the
+ * view is not reported, and the layer's stacking is `--rca-z-native-links`
+ * (default `Z_INDEX.PDF_NATIVE_LINK_LAYER`).
  */
 import { useEffect, useMemo, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
@@ -157,7 +158,7 @@ const LinkOverlay = styled.div`
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: ${Z_INDEX.PDF_NATIVE_LINK_LAYER};
+  z-index: var(--rca-z-native-links, ${Z_INDEX.PDF_NATIVE_LINK_LAYER});
 `;
 
 const NativeLinkAnchor = styled.a`

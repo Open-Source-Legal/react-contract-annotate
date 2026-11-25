@@ -160,6 +160,23 @@ describe("NativeLinkLayer", () => {
     expect(page.getViewport).toHaveBeenCalledWith({ scale: 2 });
   });
 
+  it("stacks the layer by --rca-z-native-links, defaulting to the ported z-index", async () => {
+    const page = makePage([SAFE_LINK]);
+    const { container } = inAnnotator(<NativeLinkLayer page={page} scale={1} />);
+
+    await waitFor(() => screen.getByRole("link"));
+    const overlay = container.querySelector("[data-rca-native-links]")!;
+    const css = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules))
+      .filter(
+        (rule): rule is CSSStyleRule =>
+          rule instanceof CSSStyleRule && overlay.matches(rule.selectorText)
+      )
+      .map((rule) => rule.cssText)
+      .join("\n");
+    expect(css).toMatch(/z-index:\s*var\(--rca-z-native-links,\s*2\)/);
+  });
+
   it("exposes an aria-label for screen readers", async () => {
     const page = makePage([SAFE_LINK]);
 

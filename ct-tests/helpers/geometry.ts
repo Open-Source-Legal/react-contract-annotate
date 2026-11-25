@@ -74,14 +74,21 @@ export async function tokenRectsRelativeToCanvas(
 }
 
 /**
- * Where the box of `id` on a page is in the root's view: its top and bottom
- * relative to the top of the root's client area, and that area's height.
+ * Where the box of `id` on a page is in the root's view: its edges relative
+ * to the top left of the root's client area, and that area's size.
  */
 export async function boxInRootView(
   root: Locator,
   id: string,
   pageIndex: number
-): Promise<{ top: number; bottom: number; viewHeight: number }> {
+): Promise<{
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  viewHeight: number;
+  viewWidth: number;
+}> {
   return root.evaluate(
     (el, [annotationId, part]) => {
       const box = Array.from(
@@ -90,12 +97,17 @@ export async function boxInRootView(
         candidate.getAttribute("data-rca-annotation") === annotationId
       );
       if (!box) throw new Error(`no box for ${annotationId} on page ${part}`);
-      const view = el.getBoundingClientRect().top + el.clientTop;
+      const view = el.getBoundingClientRect();
+      const viewTop = view.top + el.clientTop;
+      const viewLeft = view.left + el.clientLeft;
       const rect = box.getBoundingClientRect();
       return {
-        top: rect.top - view,
-        bottom: rect.bottom - view,
+        top: rect.top - viewTop,
+        bottom: rect.bottom - viewTop,
+        left: rect.left - viewLeft,
+        right: rect.right - viewLeft,
         viewHeight: el.clientHeight,
+        viewWidth: el.clientWidth,
       };
     },
     [id, pageIndex] as const

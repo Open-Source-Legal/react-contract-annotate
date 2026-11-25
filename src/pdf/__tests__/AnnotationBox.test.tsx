@@ -302,6 +302,29 @@ test("selected relation endpoint shows SOURCE / TARGET badge", () => {
   expect(badge(view.container, "a-other")).toBeNull();
 });
 
+test("the label bar and the relation badge take their font and stacking from custom properties with the ported defaults", () => {
+  renderBoxes({
+    annotations: [tokenAnnotation("a-source"), tokenAnnotation("a-target")],
+    relations: [
+      {
+        id: "r1",
+        label: { id: "l-ref", text: "References" },
+        sourceIds: ["a-source"],
+        targetIds: ["a-target"],
+      },
+    ],
+    selectedRelationIds: ["r1"],
+  });
+
+  const css = Array.from(document.styleSheets)
+    .flatMap((sheet) => Array.from(sheet.cssRules, (rule) => rule.cssText))
+    .join("\n");
+  expect(css).toMatch(/var\(--rca-label-font-weight,\s*bold\)/);
+  expect(css).toMatch(/var\(--rca-label-font-size,\s*12px\)/);
+  expect(css).toMatch(/var\(--rca-z-relation-badge,\s*1\)/);
+  expect(css).toMatch(/var\(--rca-relation-badge-font-size,\s*0\.75rem\)/);
+});
+
 test("boxes and token rects are scaled by the page's zoom", () => {
   const { container } = renderBoxes(
     { annotations: [tokenAnnotation("a1")] },

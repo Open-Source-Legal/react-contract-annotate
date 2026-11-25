@@ -51,6 +51,10 @@ const TOKEN_EXPANSION_PX = 1;
 const RENDER_SETTLE_MS = 400;
 /** A scroll position below the top that keeps page 0's top annotations in view. */
 const NUDGED_SCROLL_TOP = 30;
+/** Distinct positions an instant annotation scroll passes: the page, then the box. */
+const INSTANT_SCROLL_POSITIONS = 2;
+/** At zoom 2, a horizontal scroll that keeps a-title (x 1008..1088) in view. */
+const VISIBLE_SCROLL_LEFT = 250;
 
 /** Console errors and warnings, and uncaught errors, of the current test. */
 const consoleProblems: string[] = [];
@@ -110,6 +114,21 @@ async function recordWindowOpen(page: Page): Promise<void> {
 function openedUrls(page: Page): Promise<unknown[][]> {
   return page.evaluate(
     () => (window as unknown as { __opened: unknown[][] }).__opened
+  );
+}
+
+/** Records the root's `scrollTop` on every scroll event; read it with `recordedScrollTops`. */
+async function recordScrollTops(root: Locator): Promise<void> {
+  await root.evaluate((el) => {
+    const w = window as unknown as { __scrollTops: number[] };
+    w.__scrollTops = [];
+    el.addEventListener("scroll", () => w.__scrollTops.push(el.scrollTop));
+  });
+}
+
+function recordedScrollTops(page: Page): Promise<number[]> {
+  return page.evaluate(
+    () => (window as unknown as { __scrollTops: number[] }).__scrollTops
   );
 }
 
@@ -205,6 +224,90 @@ test("scrollToAnnotation('a-far') resolves true and the box is inside the viewpo
   expect(
     Math.abs((top + bottom) / 2 - viewHeight / 2)
   ).toBeLessThanOrEqual(CENTRE_TOLERANCE_PX);
+});
+
+for (const behavior of ["smooth", "instant"] as const) {
+  test(`scrollToAnnotation('a-far', { behavior: '${behavior}' }) resolves once the box has landed, centred in view`, async ({
+    mount,
+    page,
+  }) => {
+    await mount(<PdfHarness />);
+    await waitForDocumentLoad(page);
+    const root = annotatorRoot(page);
+    await expect.poll(() => mountedPages(root)).toContain(0);
+    await recordScrollTops(root);
+
+    expect(
+      await callHandle(page, "scrollToAnnotation", ["a-far", { behavior }])
+    ).toBe(true);
+
+    // Measured at once: the promise means the scroll has landed.
+    const landedTop = await root.evaluate((el) => el.scrollTop);
+    const { top, bottom, viewHeight } = await boxInRootView(root, "a-far", 17);
+    expect(top).toBeGreaterThanOrEqual(0);
+    expect(bottom).toBeLessThanOrEqual(viewHeight);
+    expect(
+      Math.abs((top + bottom) / 2 - viewHeight / 2)
+    ).toBeLessThanOrEqual(CENTRE_TOLERANCE_PX);
+    expect(
+      Math.abs((await settledScrollTop(root)) - landedTop)
+    ).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX);
+
+    const positions = new Set(await recordedScrollTops(page)).size;
+    if (behavior === "smooth") {
+      expect(positions).toBeGreaterThan(INSTANT_SCROLL_POSITIONS);
+    } else {
+      expect(positions).toBeLessThanOrEqual(INSTANT_SCROLL_POSITIONS);
+    }
+  });
+}
+
+test("centring leaves scrollLeft alone for a horizontally visible box, and otherwise moves it the least", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <PdfHarness annotationIds={["a-title"]} props={{ defaultZoom: 2 }} />
+  );
+  await waitForDocumentLoad(page);
+  const root = annotatorRoot(page);
+  await expect(annotationBox(root, "a-title", 0)).toHaveCount(1);
+  expect(await root.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
+    true
+  );
+
+  await root.evaluate((el, left) => {
+    el.scrollLeft = left;
+  }, VISIBLE_SCROLL_LEFT);
+  const visible = await boxInRootView(root, "a-title", 0);
+  expect(visible.left).toBeGreaterThanOrEqual(0);
+  expect(visible.right).toBeLessThanOrEqual(visible.viewWidth);
+
+  expect(
+    await callHandle(page, "scrollToAnnotation", [
+      "a-title",
+      { behavior: "instant" },
+    ])
+  ).toBe(true);
+  expect(await root.evaluate((el) => el.scrollLeft)).toBe(VISIBLE_SCROLL_LEFT);
+
+  // Off to the right: scrolled just far enough to show its right edge.
+  await root.evaluate((el) => {
+    el.scrollLeft = 0;
+  });
+  const hidden = await boxInRootView(root, "a-title", 0);
+  expect(hidden.right).toBeGreaterThan(hidden.viewWidth);
+
+  expect(
+    await callHandle(page, "scrollToAnnotation", [
+      "a-title",
+      { behavior: "instant" },
+    ])
+  ).toBe(true);
+  const shown = await boxInRootView(root, "a-title", 0);
+  expect(Math.abs(shown.right - shown.viewWidth)).toBeLessThanOrEqual(
+    GEOMETRY_TOLERANCE_PX
+  );
 });
 
 test("scrollToAnnotation('nope') resolves false; scrollToAnnotation('a-bad-page') resolves false", async ({
