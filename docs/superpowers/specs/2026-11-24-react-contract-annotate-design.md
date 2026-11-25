@@ -300,7 +300,8 @@ The pending selection is **viewer-level state in the store**, not local
 state of a page's `SelectionLayer` as it is today, so it survives its page
 leaving the virtual window and is what the handle and slot read. Shift-drag
 regions on different pages merge into one multipage draft *(my call — it is
-what the multipage JSON is for)*.
+what the multipage JSON is for)*. A pending selection belongs to one
+document: it clears when the viewer starts loading another.
 
 Kept from the existing selection code: multi-region selection on PDF,
 long-press selection on touch, the double-fire guard on mouse-up, Escape to
@@ -340,7 +341,9 @@ and are forced visible, as today.
 **Links.** An annotation with `linkUrl` is a link: plain click opens it,
 modifier-click selects it (current behaviour). Embedded PDF links stay
 clickable. Both go to `onOpenLink` when supplied; otherwise `http(s)` URLs
-open in a new tab with `noopener` and anything else is ignored.
+open in a new tab with `noopener` and anything else is ignored. Hyperlinks
+inside a DOCX follow the same policy (reported with source `"native"`); a
+click on one never navigates the host page.
 
 **Visibility** is the existing `useVisibleAnnotations` logic unchanged:
 selected annotations and endpoints of selected relations are always shown;
@@ -574,8 +577,9 @@ src/
   `getPageCount`, `getVisiblePageRange` — plus the annotation kind it draws
   (`token` or `span`). PDF and DOCX are built on exactly this contract, so it
   is exercised twice before anyone else uses it.
-- **Theming.** Colours come from labels. Structural colours, z-indices and
-  the default font are CSS custom properties on the root with defaults.
+- **Theming.** Colours come from labels, structural annotations included.
+  Z-indices and the default font are CSS custom properties on the root with
+  defaults.
 
 ## Testing
 
