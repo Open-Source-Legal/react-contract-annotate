@@ -1,0 +1,253 @@
+/**
+ * The pending text selection: what happens when a format reports that the
+ * user has finished selecting text, and the actions that act on the result.
+ *
+ * `useCompleteSelection` is the format's side. It records the selection as
+ * pending in the store, tells the host through `onTextSelect`, then, unless
+ * the host already dealt with it, applies exactly one outcome:
+ *
+ * 1. `renderSelectionMenu` is supplied: the selection stays pending and
+ *    `SelectionMenuHost` renders the slot.
+ * 2. No slot, not `readOnly` and an `activeLabel`: it is committed at once.
+ * 3. Otherwise it stays pending until the host clears it, the user presses
+ *    Escape or a newer selection replaces it.
+ *
+ * Committing hands the draft to `onCreateAnnotation`; the library never adds
+ * it to the annotations itself.
+ *
+ * A pending selection belongs to one document: it is dropped when the
+ * annotator starts loading another (`dropPendingSelection`, called by the
+ * document status setter).
+ */
+import { atom, useAtomValue } from "jotai";
+import { useCallback, useEffect, useMemo } from "react";
+
+import { eventCallbacks } from "./callbacks";
+import { ESCAPE_KEY } from "./constants";
+import { devWarnOnce } from "./devWarn";
+import { useAnnotatorStore } from "./state/AnnotatorProvider";
+import type { AnnotatorStore } from "./state/AnnotatorProvider";
+import {
+  editingAtom,
+  pendingSelectionAtom,
+  rootElementAtom,
+} from "./state/atoms";
+import type {
+  AnnotationDraft,
+  AnnotatorHandle,
+  PendingActions,
+  PendingSelection,
+} from "./types";
+
+/** Whether a selection is pending; unlike the selection, it rarely changes. */
+const hasPendingSelectionAtom = atom(
+  (get) => get(pendingSelectionAtom) !== null
+);
+
+/** The actions of a pending selection, without the selection itself. */
+type PendingControls = Pick<PendingActions, "commit" | "clear" | "copyText">;
+
+/**
+ * A failed `onCreateAnnotation` (it threw, or its promise rejected) goes to
+ * `onError`. The library's catch is also what keeps a rejection from being
+ * unhandled, so without an `onError` the failure is at least warned about in
+ * development.
+ */
+function reportCreateFailure(store: AnnotatorStore, reason: unknown): void {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  const { onError } = eventCallbacks(store);
+  if (onError) {
+    onError(error);
+    return;
+  }
+  devWarnOnce(
+    store,
+    "create-annotation-rejected",
+    "onCreateAnnotation failed, and no onError callback was supplied to " +
+      `report it to: ${error.message}`
+  );
+}
+
+/**
+ * The actions on the pending selection. With `bound` they act only while
+ * that very selection is still the pending one, and do nothing once a newer
+ * one has replaced it; without, on whichever selection is pending when they
+ * are called.
+ */
+function createControls(
+  store: AnnotatorStore,
+  bound?: PendingSelection
+): PendingControls {
+  const target = (): PendingSelection | null => {
+    const current = store.get(pendingSelectionAtom);
+    return bound === undefined || current === bound ? current : null;
+  };
+
+  return {
+    commit(label) {
+      const pending = target();
+      const { readOnly, activeLabel } = store.get(editingAtom);
+      if (!pending || readOnly) return;
+      // The draft only: the anchor is not part of what the host persists.
+      const draft: AnnotationDraft = {
+        json: pending.json,
+        rawText: pending.rawText,
+        page: pending.page,
+        annotationLabel: label ?? activeLabel ?? null,
+      };
+      // Cleared first and not awaited, so the selection is gone whether the
+      // callback returns, rejects or never settles.
+      store.set(pendingSelectionAtom, null);
+      let result: void | Promise<void>;
+      try {
+        result = eventCallbacks(store).onCreateAnnotation?.(draft);
+      } catch (reason: unknown) {
+        // A synchronous failure created nothing: the selection stays pending
+        // (unless the callback made a new one before it threw).
+        if (store.get(pendingSelectionAtom) === null) {
+          store.set(pendingSelectionAtom, pending);
+        }
+        reportCreateFailure(store, reason);
+        return;
+      }
+      void Promise.resolve(result).catch((reason: unknown) =>
+        reportCreateFailure(store, reason)
+      );
+    },
+
+    clear() {
+      if (target()) store.set(pendingSelectionAtom, null);
+    },
+
+    async copyText() {
+      const pending = target();
+      const clipboard =
+        typeof navigator === "undefined" ? undefined : navigator.clipboard;
+      if (!pending || !clipboard) return false;
+      try {
+        await clipboard.writeText(pending.rawText);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+function completeSelection(
+  store: AnnotatorStore,
+  draft: AnnotationDraft,
+  anchor: { x: number; y: number }
+): void {
+  const pending: PendingSelection = {
+    json: draft.json,
+    rawText: draft.rawText,
+    page: draft.page,
+    annotationLabel: draft.annotationLabel,
+    anchor: { x: anchor.x, y: anchor.y },
+  };
+  store.set(pendingSelectionAtom, pending);
+
+  // Bound to this selection: if the host commits, clears or replaces it from
+  // `onTextSelect`, the commit of outcome 2 below finds it gone and does
+  // nothing, so the host's own handling is never doubled.
+  const controls = createControls(store, pending);
+  eventCallbacks(store).onTextSelect?.(pending, {
+    pending,
+    anchor: pending.anchor,
+    ...controls,
+  });
+
+  if (eventCallbacks(store).renderSelectionMenu) return; // outcome 1
+  const { readOnly, activeLabel } = store.get(editingAtom);
+  if (!readOnly && activeLabel) controls.commit(); // outcome 2
+  // Outcome 3: it stays pending.
+}
+
+/**
+ * For formats. Returns a stable function to call when the user finishes
+ * selecting text, with the draft and the viewport point (`clientX` /
+ * `clientY` coordinates) the selection menu should open at. Never re-renders
+ * its caller.
+ */
+export function useCompleteSelection(): (
+  draft: AnnotationDraft,
+  anchor: { x: number; y: number }
+) => void {
+  const store = useAnnotatorStore("useCompleteSelection");
+  return useCallback(
+    (draft, anchor) => completeSelection(store, draft, anchor),
+    [store]
+  );
+}
+
+/** The pending selection, or null. For formats that paint it. */
+export function usePendingSelection(): PendingSelection | null {
+  const store = useAnnotatorStore("usePendingSelection");
+  return useAtomValue(pendingSelectionAtom, { store });
+}
+
+/**
+ * Stable actions on whichever selection is pending when they are called;
+ * without one, `commit` and `clear` do nothing and `copyText` resolves false.
+ * `commit` does nothing while the annotator is `readOnly`. `copyText` writes
+ * the selection's text to the clipboard and resolves whether it did; it never
+ * rejects.
+ */
+export function usePendingActions(): PendingControls {
+  const store = useAnnotatorStore("usePendingActions");
+  return useMemo(() => createControls(store), [store]);
+}
+
+/**
+ * Drops whichever selection is pending, with no outcome. For the document
+ * status setter, when the annotator starts loading another document.
+ */
+export function dropPendingSelection(store: AnnotatorStore): void {
+  store.set(pendingSelectionAtom, null);
+}
+
+/** The pending-selection methods of the imperative handle. */
+export function pendingHandleMethods(
+  store: AnnotatorStore
+): Pick<
+  AnnotatorHandle,
+  "getPendingSelection" | "commitPendingSelection" | "clearPendingSelection"
+> {
+  const controls = createControls(store);
+  return {
+    getPendingSelection: () => store.get(pendingSelectionAtom),
+    commitPendingSelection: (label) => controls.commit(label),
+    clearPendingSelection: () => controls.clear(),
+  };
+}
+
+/**
+ * Escape clears a pending selection. It is heard on the instance root
+ * (focusable, so a click inside the document focuses it) and, only while a
+ * selection is pending, on the window, which covers focus elsewhere.
+ */
+export function useClearPendingOnEscape(): void {
+  const store = useAnnotatorStore("useClearPendingOnEscape");
+  const root = useAtomValue(rootElementAtom, { store });
+  const hasPending = useAtomValue(hasPendingSelectionAtom, { store });
+
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key === ESCAPE_KEY) store.set(pendingSelectionAtom, null);
+    },
+    [store]
+  );
+
+  useEffect(() => {
+    if (!root) return;
+    root.addEventListener("keydown", onKeyDown);
+    return () => root.removeEventListener("keydown", onKeyDown);
+  }, [root, onKeyDown]);
+
+  useEffect(() => {
+    if (!hasPending) return;
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [hasPending, onKeyDown]);
+}

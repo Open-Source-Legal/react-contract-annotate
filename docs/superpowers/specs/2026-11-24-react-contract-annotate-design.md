@@ -140,7 +140,9 @@ Both were picked by the project owner in conversation.
 
 ## Data model
 
-Plain JSON in, no classes in the public API. Internally the ported
+Plain JSON in, no classes in the public API. Annotation objects are treated as
+immutable: normalisation is memoised by object identity, so a host changes an
+annotation by passing a new object, not by mutating one in place. Internally the ported
 `ServerTokenAnnotation` / `ServerSpanAnnotation` / `PDFPageInfo` classes may
 stay.
 
@@ -193,6 +195,9 @@ interface Highlight {
 type PawlsPage = { page: { width: number; height: number; index: number };
                    tokens: PawlsToken[] };             // per docs/architecture/pawls-format.md
 ```
+
+A highlight's `label`, when given, is drawn as a chip on its box, subject to
+`labelDisplay` like an annotation's label (PDF only).
 
 Token annotations and `tokens`/`bounds` highlights render in PDF; span
 annotations and `span` highlights render in DOCX. A renderer ignores kinds it
@@ -295,7 +300,8 @@ The pending selection is **viewer-level state in the store**, not local
 state of a page's `SelectionLayer` as it is today, so it survives its page
 leaving the virtual window and is what the handle and slot read. Shift-drag
 regions on different pages merge into one multipage draft *(my call — it is
-what the multipage JSON is for)*.
+what the multipage JSON is for)*. A pending selection belongs to one
+document: it clears when the viewer starts loading another.
 
 Kept from the existing selection code: multi-region selection on PDF,
 long-press selection on touch, the double-fire guard on mouse-up, Escape to
@@ -314,8 +320,16 @@ drag-selecting text under an annotation; structural annotations cover every
 paragraph):*
 
 - PDF: Shift-click (or Ctrl/Cmd-click) toggles the annotation in the
-  selection. A plain press passes through to the selection layer, which
-  starts a text selection and clears the current annotation selection.
+  selection. A plain press passes through to the selection layer and *arms* a
+  text selection; nothing changes until the pointer moves past a small drag
+  tolerance. A drag then clears the current annotation selection and any
+  pending selection and selects text. A click without a drag on a blank part
+  of the page clears the annotation selection and any pending selection; a
+  click without a drag on an annotation or highlight box clears nothing.
+  *(Amended during implementation: in OpenContracts the press itself started
+  the selection, which with no built-in menu would turn every click on a word
+  into a one-word annotation whenever `activeLabel` is set, and would make
+  clicking a highlight deselect annotations.)*
 - DOCX: plain click replaces the selection, Ctrl/Cmd-click toggles, a click
   on empty text clears.
 - `onAnnotationClick` fires for *every* click that lands on an annotation
@@ -327,7 +341,9 @@ and are forced visible, as today.
 **Links.** An annotation with `linkUrl` is a link: plain click opens it,
 modifier-click selects it (current behaviour). Embedded PDF links stay
 clickable. Both go to `onOpenLink` when supplied; otherwise `http(s)` URLs
-open in a new tab with `noopener` and anything else is ignored.
+open in a new tab with `noopener` and anything else is ignored. Hyperlinks
+inside a DOCX follow the same policy (reported with source `"native"`); a
+click on one never navigates the host page.
 
 **Visibility** is the existing `useVisibleAnnotations` logic unchanged:
 selected annotations and endpoints of selected relations are always shown;
@@ -409,7 +425,7 @@ interface PdfAnnotatorProps<M> extends AnnotatorCommonProps<M> {
   source: { url: string; httpHeaders?: Record<string, string>;
             withCredentials?: boolean }
         | { data: Uint8Array | ArrayBuffer }
-        | { document: PDFDocumentProxy };
+        | { document: PDFDocumentProxy };     // typed structurally (`PdfDocumentProxyLike`) in core, which may not import pdfjs-dist
   pawls?: PawlsPage[] | CompactPawls | null;   // v1 pages or compact v2 ({ v: 2, p: [...] })
   enableNativeLinks?: boolean;                 // default true
 }
@@ -442,7 +458,9 @@ Initial zoom is fit-to-width (existing `computeFitToWidthZoom`) unless
 **DOCX.** Existing convert-once / project-many pipeline: convert with
 docxodus, sanitise with DOMPurify, project annotations and highlights,
 toggle label visibility with generated CSS, paginate with
-`docxodus/react`'s `PaginatedDocument`. The existing DOM-offset
+`docxodus/react`'s `usePagination` (the hook under its
+`PaginatedDocument`, used directly so a pagination failure reaches
+`onError`). The existing DOM-offset
 disambiguation for repeated text is kept. Its built-in selection menu is
 replaced by the shared selection behaviour above.
 
@@ -466,6 +484,54 @@ extraction):*
 
 Unsupported props are accepted and ignored on DOCX, with a one-time
 development warning, and the matrix is in the README.
+
+**DOCX behaviour that deliberately differs from OpenContracts** *(amended
+during implementation; each is a defect in the OpenContracts renderer at
+`98286cabf` that the port does not reproduce):*
+
+- Structural annotations are actually drawn when `showStructural` is on (in
+  OpenContracts the toggle projected nothing).
+- The projected HTML's pretty-printing whitespace is not rendered as text, so
+  the document no longer gains a blank line and an indent once annotations
+  are projected.
+- A zoomed page that overflows is scrollable to its left edge instead of
+  being cut off.
+- Selecting repeated text resolves to the occurrence the user selected, not
+  the last one.
+
+**Overlap rule.** The DOCX engine (docxodus 12.4.1) draws only one of any
+two overlapping spans, strictly nested ones included. The library's policy:
+user annotations, highlights and the pending selection take precedence over
+structural annotations, so a structural span that overlaps one of them is
+left out of the projection. Among non-structural spans the engine's choice
+stands. `scrollToAnnotation` / `scrollToHighlight` resolve `false` promptly
+for a target the projection did not draw. (An annotation hidden only by the
+display filters still counts as drawable, so `{ select: true }` can reveal
+it; without `select` such a scroll resolves `false` at the bounded timeout,
+on both formats.)
+
+**Isolation.** The converted document is untrusted input. Its stylesheet is
+scoped to its viewer instance: it must not restyle the host page or another
+viewer, and host CSS class names must not collide with the document's.
+Document CSS, in the stylesheet and in inline styles, is filtered by
+allow-list: a fixed set of presentational properties and a conservative
+value grammar. A document therefore cannot make the browser fetch a URL of
+its choosing, declare names the page shares (anchors, counters, containers,
+view transitions), or place a box outside its viewer. (It can name a font
+the host page itself declared, which the browser then loads from the host's
+URL.) The viewer's frame contains layout, paint and style: a second barrier
+for boxes, and the only one for list numbering. Styling outside the
+allow-list is dropped (images and gradients in CSS, newer colour functions).
+
+Two limits are accepted. Inside its own viewer the document controls how its
+content looks, and annotation marks are drawn on that content, so a hostile
+document can hide or imitate them there; a host reviewing adversarial
+documents should treat its own annotation list, not the rendering, as the
+record. A hostile document can also exhaust or crash the page: very large
+input, or CSS nested deeply enough to crash the browser's own parser, which
+happens while the converted HTML is first parsed, before any filter runs.
+That is not defended against. A host that must survive such documents should
+render them in an isolated frame or process.
 
 **Scrolling element.** The component's root is the scroll container and
 fills its parent; the parent must have a height. The existing fallback to
@@ -513,8 +579,9 @@ src/
   `getPageCount`, `getVisiblePageRange` — plus the annotation kind it draws
   (`token` or `span`). PDF and DOCX are built on exactly this contract, so it
   is exercised twice before anyone else uses it.
-- **Theming.** Colours come from labels. Structural colours, z-indices and
-  the default font are CSS custom properties on the root with defaults.
+- **Theming.** Colours come from labels, structural annotations included.
+  Z-indices and the default font are CSS custom properties on the root with
+  defaults.
 
 ## Testing
 

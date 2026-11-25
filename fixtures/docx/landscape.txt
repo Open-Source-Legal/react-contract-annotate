@@ -1,0 +1,2 @@
+Second document on a landscape page.
+Its Normal style is sixteen point Arial.

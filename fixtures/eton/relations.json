@@ -1,0 +1,15 @@
+[
+  {
+    "id": "r-1",
+    "label": {
+      "id": "l-ref",
+      "text": "References"
+    },
+    "sourceIds": [
+      "a-title"
+    ],
+    "targetIds": [
+      "a-far"
+    ]
+  }
+]
