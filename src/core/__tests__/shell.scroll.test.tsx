@@ -194,6 +194,67 @@ test("controlled: a quiet write from the host's layout effect holds until its ec
   expect(recorder.requests).toEqual([]);
 });
 
+test("a quiet write made while loading stays quiet when the document becomes ready", () => {
+  const { handle, recorder, rerender } = setup({}, { status: LOADING });
+  act(() => handle().selectAnnotations(["a1"], { scroll: false }));
+  rerender({}, { status: READY });
+  expect(handle().getSelectedAnnotationIds()).toEqual(["a1"]);
+  expect(recorder.requests).toEqual([]);
+});
+
+test("a quiet write whose id is not in the data yet stays quiet when the id arrives", () => {
+  const { handle, recorder, rerender } = setup();
+  act(() => handle().selectAnnotations(["a9"], { scroll: false }));
+  rerender({ annotations: [...ANNOTATIONS, annotation("a9")] });
+  expect(recorder.requests).toEqual([]);
+});
+
+test("controlled: a quiet write still waiting for its id does not silence a different later change", () => {
+  const { recorder, api } = renderEchoHost();
+  act(() => api().handle().selectAnnotations(["a9"], { scroll: false }));
+  act(() => api().setIds(["a2"]));
+  expect(targets(recorder)).toEqual([{ kind: "annotation", id: "a2" }]);
+});
+
+test("a quiet write ends once evaluated: a reload scrolls to the selection again", () => {
+  const { handle, recorder, rerender } = setup();
+  act(() => handle().selectAnnotations(["a1"], { scroll: false }));
+  expect(recorder.requests).toEqual([]);
+
+  rerender({}, { status: LOADING });
+  rerender({}, { status: READY });
+  expect(targets(recorder)).toEqual([{ kind: "annotation", id: "a1" }]);
+});
+
+test("a quiet write whose target is held by canDraw=false stays quiet after drawability is notified", () => {
+  const { handle, recorder } = setup();
+  recorder.drawable = false;
+  act(() => handle().selectAnnotations(["a1"], { scroll: false }));
+  recorder.drawable = true;
+  act(() => recorder.notifyDrawabilityChanged());
+  expect(recorder.requests).toEqual([]);
+});
+
+const UNCONTROLLED_A1 = { defaultSelectedAnnotationIds: ["a1"] };
+const CONTROLLED_A1 = { selectedAnnotationIds: ["a1"] };
+
+test.each([
+  ["uncontrolled, StrictMode", UNCONTROLLED_A1, true],
+  ["controlled, StrictMode", CONTROLLED_A1, true],
+  ["uncontrolled, no StrictMode", UNCONTROLLED_A1, false],
+  ["controlled, no StrictMode", CONTROLLED_A1, false],
+])(
+  "mounted ready (%s): exactly one live deep-link request",
+  (_name, common, strict) => {
+    const { recorder } = setup(common, { autoComplete: false }, { strict });
+    expect(recorder.current).toMatchObject({
+      target: { kind: "annotation", id: "a1" },
+      bounded: false,
+    });
+    if (!strict) expect(recorder.requests).toHaveLength(1);
+  }
+);
+
 /** Controlled selection ["a1"], maybe selected again via the handle; reload. */
 async function reloadAfterSelect(selectThroughHandle: boolean) {
   const common = { selectedAnnotationIds: ["a1"] };

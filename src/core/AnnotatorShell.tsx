@@ -114,21 +114,21 @@ const ROOT_STYLE = Object.freeze({
 }) as CSSProperties;
 
 /**
- * One write the handle made whose arrival must not raise the scroll request a
- * change normally raises: `selectAnnotations` with `{ scroll: false }`, and
- * the select / activate step of `scrollTo…`, which raises its own bounded
- * request. It lives until the commit after the write (`dueTick`): the handle
- * forces that commit, so a host that applies the write synchronously has it
- * in the store by then, and a write the host declines (or echoes as an equal
- * value the bridge drops) cannot silence a later, unrelated change. The cost:
- * a host that applies it asynchronously gets the scroll anyway.
+ * A handle write whose change must not raise the scroll request a change
+ * normally raises: `selectAnnotations` with `{ scroll: false }`, and the
+ * select / activate step of `scrollTo…`, which raises its own bounded
+ * request. See "Scroll-on-change rule" below for its life cycle.
+ *
+ * `value` is the value written until the intent is `bound`, then the store
+ * value (by identity) it binds to. `dueTick` is the tick of the commit after
+ * the write, which the handle forces.
  */
-type QuietWrite<T> = { value: T; dueTick: number } | null;
-type QuietSlot<T> = MutableRefObject<QuietWrite<T>>;
+type QuietIntent<T> = { value: T; dueTick: number; bound: boolean };
+type QuietSlot<T> = MutableRefObject<QuietIntent<T> | null>;
 type QuietWrites = {
   selection: QuietSlot<string[]>;
   highlight: QuietSlot<string | null>;
-  /** Records a quiet write in `slot` and forces the commit that expires it. */
+  /** Records a quiet intent in `slot` and forces the commit after it. */
   mark<T>(slot: QuietSlot<T>, value: T): void;
 };
 
@@ -139,14 +139,18 @@ function ShellBody<M>({ common, handleRef, children }: AnnotatorShellProps<M>) {
   useLayoutEffect(() => {
     committedTick.current = tick;
   });
-  const selectionSlot = useRef<QuietWrite<string[]>>(null);
-  const highlightSlot = useRef<QuietWrite<string | null>>(null);
+  const selectionSlot = useRef<QuietIntent<string[]> | null>(null);
+  const highlightSlot = useRef<QuietIntent<string | null> | null>(null);
   const quiet = useMemo<QuietWrites>(
     () => ({
       selection: selectionSlot,
       highlight: highlightSlot,
       mark(slot, value) {
-        slot.current = { value, dueTick: committedTick.current + 1 };
+        slot.current = {
+          value,
+          dueTick: committedTick.current + 1,
+          bound: false,
+        };
         forceCommit();
       },
     }),
@@ -446,19 +450,41 @@ type ChangeScroll<T> = {
 };
 
 /**
- * Raises one unbounded request per change of a bridged value, once the
- * document is ready and the target exists. A value present when the document
- * finishes loading counts as a change (the deep-link case). A change is not
- * scrolled to when it is the host echoing back a user change, when the handle
- * wrote it quietly, or when `enabled` is off. A change still waiting (its id
- * not in the data yet, or not drawable yet) is not consumed; it is looked at
- * again after every commit, and the subscriptions below make every input
- * that matters commit.
+ * Scroll-on-change rule, one instance per bridged value (the selection, the
+ * active highlight). It is a small state machine:
  *
- * The decision reads the store at effect time rather than this render's
- * values: a controlled value lands in the store during the commit (the
- * bridge's layout effect), after this render read it, and a quiet write must
- * be matched in that same commit.
+ * - CHANGE. The store's value is a change when it is not (by identity) the
+ *   value last evaluated, `evaluated`. `evaluated` is cleared whenever the
+ *   document is not ready, so the value present when it becomes ready is a
+ *   change (the deep link); and when the effects are torn down, so a replay
+ *   (StrictMode's simulated remount, whose teardown cancels the request in
+ *   flight) evaluates the value again.
+ *
+ * - EVALUATION. A change is evaluated once the document is ready, a driver
+ *   is registered and the change's id, if any, is in the data; until then it
+ *   waits. Evaluation consumes the change (records it in `evaluated`) when it
+ *   skips it (no id, a user echo, quiet, or `enabled` off) or raises a
+ *   request. A change that would raise a request for a target the format
+ *   cannot draw yet is held: not consumed, evaluated again after the next
+ *   commit.
+ *
+ * - QUIET. A quiet handle write records an intent (`QuietIntent`). The
+ *   intent binds to the first store value, after the write, that equals it
+ *   and is a change; that exact value is then quiet whenever it is
+ *   evaluated, however long it waits.
+ *
+ * - END OF QUIETNESS. A bound intent ends when its value is evaluated or the
+ *   store moves to another value first. An unbound intent ends at the commit
+ *   after the write (`dueTick`): the write produced no change (the host
+ *   declined it, or echoed an equal value the bridge dropped), so it must not
+ *   silence a later, unrelated change. A handle write that wants a scroll
+ *   discards any intent. Cost: a host that applies a quiet write only after
+ *   that commit (asynchronously) gets the scroll.
+ *
+ * The rule runs after every commit and reads the store at that time, not
+ * this render's values: a controlled value reaches the store during the
+ * commit (the bridge's layout effect), after this render read it. The
+ * subscriptions below make every input it reads commit when it changes.
  */
 function useScrollOnChange<T>(
   store: AnnotatorStore,
@@ -486,58 +512,68 @@ function useScrollOnChange<T>(
   useLayoutEffect(() => {
     latest.current = { equals, enabled };
   });
-  /** The value last handled; null until one is, and again after a reload. */
-  const handled = useRef<{ value: T } | null>(null);
+  /** The value last evaluated; null until one is, after a reload or replay. */
+  const evaluated = useRef<{ value: T } | null>(null);
   /** The user-write version already accounted for. */
   const seenUserVersion = useRef(0);
 
+  useEffect(
+    () => () => {
+      evaluated.current = null;
+    },
+    []
+  );
+
   useEffect(() => {
-    const marker = quiet.current;
     const { equals: same, enabled: allowed } = latest.current;
+    const ready = store.get(documentStatusAtom).state === "ready";
+    if (!ready) evaluated.current = null;
+    const value = store.get(valueAtom);
+    const isChange =
+      evaluated.current === null || !Object.is(evaluated.current.value, value);
 
-    /** Handles a pending change; true when it used the quiet marker. */
-    const handleChange = (): boolean => {
-      if (store.get(documentStatusAtom).state !== "ready") {
-        handled.current = null;
-        return false;
+    // QUIET / END OF QUIETNESS: bind, keep or drop the intent.
+    let intent = quiet.current;
+    if (intent?.bound) {
+      if (!Object.is(intent.value, value)) intent = null;
+    } else if (intent) {
+      if (isChange && same(intent.value, value)) {
+        intent = { ...intent, value, bound: true };
+      } else if (tick >= intent.dueTick) {
+        intent = null;
       }
-      const driver = store.get(formatDriverAtom);
-      if (!driver) return false;
-      const value = store.get(valueAtom);
-      if (handled.current && Object.is(handled.current.value, value)) {
-        return false;
-      }
-      const id = idOf(value);
-      if (id !== null && !store.get(dataAtom).some((item) => item.id === id)) {
-        return false; // wait for the id to arrive
-      }
-
-      // An echo may arrive late (an async host), so a user write stays
-      // eligible until the next change is handled. The trade-off: a host that
-      // declines a user write and later sets the same value itself gets no
-      // scroll for it.
-      const userVersion = lastUser.version;
-      const userEcho =
-        userVersion !== seenUserVersion.current &&
-        same(lastUser.current as T, value);
-      seenUserVersion.current = userVersion;
-      const quietWrite = marker !== null && same(marker.value, value);
-
-      if (id === null || userEcho || quietWrite || !allowed) {
-        handled.current = { value };
-        return quietWrite;
-      }
-      const target: ScrollTarget = { kind, id };
-      if (!driver.canDraw(target)) return false; // ask again later
-      handled.current = { value };
-      void requestScroll(target);
-      return false;
-    };
-
-    const used = handleChange();
-    if (marker !== null && quiet.current === marker) {
-      if (used || tick >= marker.dueTick) quiet.current = null;
     }
+    quiet.current = intent;
+
+    // EVALUATION.
+    if (!ready || !isChange) return;
+    const driver = store.get(formatDriverAtom);
+    if (!driver) return;
+    const id = idOf(value);
+    if (id !== null && !store.get(dataAtom).some((item) => item.id === id)) {
+      return; // wait for the id to arrive
+    }
+
+    // An echo may arrive late (an async host), so a user write stays
+    // eligible until the next change is evaluated. The trade-off: a host that
+    // declines a user write and later sets the same value itself gets no
+    // scroll for it.
+    const userVersion = lastUser.version;
+    const userEcho =
+      userVersion !== seenUserVersion.current &&
+      same(lastUser.current as T, value);
+    seenUserVersion.current = userVersion;
+    const isQuiet = intent?.bound === true;
+
+    if (id === null || userEcho || isQuiet || !allowed) {
+      evaluated.current = { value };
+      if (isQuiet) quiet.current = null;
+      return;
+    }
+    const target: ScrollTarget = { kind, id };
+    if (!driver.canDraw(target)) return; // held: evaluated again later
+    evaluated.current = { value };
+    void requestScroll(target);
   });
 }
 
