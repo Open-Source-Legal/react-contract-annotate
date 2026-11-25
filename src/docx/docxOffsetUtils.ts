@@ -3,16 +3,31 @@
  * `docxOffsetUtils.ts` (`renderers/docx/`, 98286cabf): an approximate offset
  * of a DOM selection point, used to tell repeated occurrences of the
  * selected text apart, and the pick of the closest occurrence. Added: the
- * literal search `findText` answers with.
+ * literal search `findText` answers with, and whether offsets name text
+ * (`isDrawableSpan`).
  *
  * Changed from OpenContracts: the tree walker comes from the container's own
  * document, and the page numbers' class is a parameter (each annotator's
- * pagination classes are its own; the default is `PaginatedDocument`'s).
+ * pagination classes are its own; the default is docxodus' own).
  */
-import type { Highlight } from "../core/index";
+import type { Highlight, SpanAnnotationJson } from "../core/index";
 import { ANNOTATION_LABEL_CLASS, PAGE_NUMBER_CLASS } from "./constants";
 
 export { ANNOTATION_LABEL_CLASS };
+
+/** True when the offsets name a non-empty range of `text`. */
+export function isDrawableSpan(
+  { start, end }: SpanAnnotationJson,
+  text: string
+): boolean {
+  return (
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    start >= 0 &&
+    start < end &&
+    end <= text.length
+  );
+}
 
 /**
  * Compute an approximate character offset from a DOM selection point.
@@ -51,7 +66,7 @@ export function getGlobalOffsetFromDomPosition(
   }
 
   // Classes whose text content is NOT part of docText and should be skipped.
-  // Includes annotation labels (WASM renderer) and page numbers (PaginatedDocument).
+  // Includes annotation labels (WASM renderer) and page numbers (the pagination).
   const SKIP_CLASSES = [cssClassPrefix, pageNumberClass];
   // Tag names whose text content is NOT part of docText (e.g. <style>, <title>).
   const SKIP_TAGS = new Set(["STYLE", "TITLE", "SCRIPT"]);

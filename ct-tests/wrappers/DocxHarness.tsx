@@ -20,7 +20,9 @@
  *   page), `"hostileFetch"` (`hostile-fetch.docx`, with background images
  *   hidden in substitution functions) or `"hostileCounter"`
  *   (`hostile-counter.docx`, whose paragraphs are list items incrementing a
- *   counter).
+ *   counter), or `"hyperlink"` (`hyperlink.docx`, without annotations, whose
+ *   links go to an absolute, a relative and a `mailto` URL and to a
+ *   bookmark).
  * - `annotationIds` picks fixture annotations by id (default: all of them,
  *   `d-bad-span` included); `extraAnnotations` are passed after them.
  * - `props` are passed through last; callbacks in it are called after the
@@ -99,6 +101,11 @@ const FIXTURES = {
     docx: "/fixtures/docx/hostile-counter.docx",
     text: "/fixtures/docx/text.txt",
     annotations: "/fixtures/docx/annotations.json",
+  },
+  hyperlink: {
+    docx: "/fixtures/docx/hyperlink.docx",
+    text: "/fixtures/docx/hyperlink.txt",
+    annotations: null,
   },
 } as const;
 

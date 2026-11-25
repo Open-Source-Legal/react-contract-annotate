@@ -1,8 +1,9 @@
 /**
  * Keeps a converted document to its own annotator (spec "Isolation"): its
- * stylesheet must not restyle the host page or another annotator, it must
- * fetch nothing, the host's class names must not collide with the
- * document's, and its element ids must not repeat across annotators.
+ * stylesheet must not restyle the host page or another annotator, it cannot
+ * make the browser fetch a URL of its choosing, the host's class names must
+ * not collide with the document's, its element ids must not repeat across
+ * annotators, and its links cannot navigate the host page.
  *
  * - Every annotator gets a random scope (`createDocxScope`), unique across
  *   React roots: the value of its `[data-rca-docx]` attribute, and the root
@@ -17,8 +18,14 @@
  * - Inline `style` attributes are reduced to allow-listed declarations the
  *   same way (`cleanInlineStyle`).
  * - Element ids are prefixed with the scope, and same-document links
- *   (`href="#…"`) follow them. The ids `PaginatedDocument` gives its
- *   staging and page containers are removed (it finds them by class).
+ *   (`href="#…"`) follow them. The ids docxodus gives the pagination's
+ *   staging and page containers are removed (the pagination finds them by
+ *   class).
+ * - Every link opens in a new tab with `rel="noopener noreferrer"`; the view
+ *   intercepts clicks on them (`DocxView`).
+ * - A `src` is kept only when it is a `data:` URL of an image. (The
+ *   sanitiser, `htmlAllowList.ts`, has already dropped every other element
+ *   and attribute that names a URL, but for links.)
  *
  * What a scoped stylesheet can still do to the scope element itself is
  * contained by the frame the DOCX view puts around it (`DocxView`).
@@ -38,7 +45,7 @@ export interface DocxScope {
   documentPrefix: string;
   /**
    * Class prefix of the pagination elements: docxodus'
-   * `paginationCssClassPrefix` and `PaginatedDocument`'s `cssPrefix`.
+   * `paginationCssClassPrefix` and the pagination's `cssPrefix`.
    */
   pagePrefix: string;
 }
@@ -66,7 +73,7 @@ export function createDocxScope(): DocxScope {
   };
 }
 
-/** The class of one of `PaginatedDocument`'s elements in this scope. */
+/** The class of one of the pagination's elements in this scope. */
 export function pageClass(
   scope: DocxScope,
   part: "container" | "staging" | "box" | "number"
@@ -79,6 +86,24 @@ export function pageClass(
 // ---------------------------------------------------------------------------
 
 const PAGINATION_IDS = new Set(["pagination-staging", "pagination-container"]);
+
+/** The scheme of a URL whose content is in the URL itself. */
+const DATA_PROTOCOL = "data:";
+/** The start of the media type of an image. */
+const IMAGE_MEDIA_TYPE = /^image\//i;
+
+/**
+ * Whether `src` is a `data:` URL of an image, read by the browser's URL
+ * parser as the browser reads it when it loads the image.
+ */
+function isImageData(src: string): boolean {
+  try {
+    const url = new URL(src);
+    return url.protocol === DATA_PROTOCOL && IMAGE_MEDIA_TYPE.test(url.pathname);
+  } catch {
+    return false; // relative, or not a URL
+  }
+}
 
 /** A document made its annotator's own. */
 export interface IsolatedDocument {
@@ -115,13 +140,37 @@ export function isolateDocument(
     cleanInlineStyle(element);
   }
 
+  // Every id is prefixed, the registries docxodus' pagination finds by id
+  // (`#pagination-hf-registry`, `#pagination-footnote-registry`,
+  // `#pagination-comment-margin-registry`) included. That is latent: the
+  // documents are converted without headers, footers, footnotes or margin
+  // comments, so there are none; converting with them would need those ids
+  // kept as they are (or the pagination told the prefixed ones).
   for (const element of Array.from(content.querySelectorAll("[id]"))) {
     if (PAGINATION_IDS.has(element.id)) element.removeAttribute("id");
     else element.id = `${scope.idPrefix}${element.id}`;
   }
+  // Same-document links follow the prefixed ids. Nothing else that names an
+  // id is made to follow them: `popovertarget` and its kind are dropped by
+  // the sanitiser, and one that followed could open a popover in the top
+  // layer, above the frame and the host's page.
   for (const link of Array.from(content.querySelectorAll('[href^="#"]'))) {
     const target = (link.getAttribute("href") ?? "").slice(1);
     if (target !== "") link.setAttribute("href", `#${scope.idPrefix}${target}`);
+  }
+  // A link opens in a new tab with neither opener nor referrer, whatever the
+  // document said: a click that `DocxView` does not intercept (a middle
+  // click, "open in new tab") cannot navigate the host page either.
+  for (const link of Array.from(content.querySelectorAll("a[href]"))) {
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  }
+  // An image is shown from its own bytes or not at all: the browser fetches
+  // nothing for it.
+  for (const element of Array.from(content.querySelectorAll("[src]"))) {
+    if (!isImageData(element.getAttribute("src") ?? "")) {
+      element.removeAttribute("src");
+    }
   }
 
   return { html: template.innerHTML, css, cssRejected: rejected };

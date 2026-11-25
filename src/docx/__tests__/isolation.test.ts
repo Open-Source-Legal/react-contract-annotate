@@ -12,10 +12,26 @@ test("isolateDocument takes the stylesheet out, prefixes ids and follows links t
   );
   expect(css).toBe(`${scope.selector} { margin: 0; }`);
   expect(cssRejected).toBe(false);
+  const link = 'target="_blank" rel="noopener noreferrer"';
   expect(html).toBe(
     '<div class="x-staging"><p>' +
-      `<a id="${scope.idPrefix}_Toc1"></a><a href="#${scope.idPrefix}_Toc1">see</a>` +
-      '<a href="https://e.com/#a">out</a></p></div><div class="x-container"></div>'
+      `<a id="${scope.idPrefix}_Toc1"></a><a href="#${scope.idPrefix}_Toc1" ${link}>see</a>` +
+      `<a href="https://e.com/#a" ${link}>out</a></p></div><div class="x-container"></div>`
+  );
+});
+
+test("isolateDocument opens every link in a new tab with no opener or referrer, whatever the document said", () => {
+  const scope = createDocxScope();
+  const { html } = isolateDocument(
+    '<a href="https://e.com/" target="_top" rel="opener">a</a>' +
+      '<a href="page.html" target="_self">b</a><a id="c">c</a>',
+    scope,
+    parseInJsdom
+  );
+  expect(html).toBe(
+    '<a href="https://e.com/" target="_blank" rel="noopener noreferrer">a</a>' +
+      '<a href="page.html" target="_blank" rel="noopener noreferrer">b</a>' +
+      `<a id="${scope.idPrefix}c">c</a>`
   );
 });
 
@@ -86,4 +102,29 @@ test("isolateDocument reports a stylesheet that failed the check, and keeps none
   );
   expect(css).toBe("");
   expect(cssRejected).toBe(true);
+});
+
+test("isolateDocument keeps a source only when the URL parser reads a data: URL of an image", () => {
+  const scope = createDocxScope();
+  const template = document.createElement("template");
+  template.innerHTML = isolateDocument(
+    '<img src="data:image/png;base64,AA=="><img src="DATA:Image/GIF;base64,AA==">' +
+      '<img src=" data:image/png;base64,AA=="><img src="https://example.invalid/a">' +
+      '<img src="/b.png"><img src="data:text/plain,image/"><span src="https://example.invalid/c"></span>',
+    scope,
+    parseInJsdom
+  ).html;
+  expect(
+    Array.from(template.content.querySelectorAll("img, span"), (element) =>
+      element.getAttribute("src")
+    )
+  ).toEqual([
+    "data:image/png;base64,AA==",
+    "DATA:Image/GIF;base64,AA==",
+    " data:image/png;base64,AA==",
+    null,
+    null,
+    null,
+    null,
+  ]);
 });

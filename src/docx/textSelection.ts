@@ -9,12 +9,16 @@
  * Changed from OpenContracts: every occurrence is considered (docxodus'
  * `findTextOccurrences` stops at 100 by default, so the 101st occurrence of a
  * phrase or later resolved to an earlier one); the DOM offset is measured in
- * the laid-out pages only (counting `PaginatedDocument`'s staging copy
- * shifted it by the whole document, so repeated text always resolved to its
- * last occurrence); repeated text is told apart by the selection's start
- * rather than its anchor (the end, for a backward drag); and a
- * whitespace-insensitive match that cannot be mapped back to `text` selects
- * nothing instead of offsets into the normalised text.
+ * the laid-out pages only (counting the pagination's staging copy shifted it
+ * by the whole document, so repeated text always resolved to its last
+ * occurrence); repeated text is told apart by the selection's start rather
+ * than its anchor (the end, for a backward drag); a whitespace-insensitive
+ * match is mapped back to `text` exactly, whitespace run by whitespace run,
+ * and its occurrences are told apart like exact ones (OpenContracts searched
+ * `text` again for the selection's first and last 30 characters verbatim:
+ * a short selection was not found at all, and the end could land on an
+ * earlier occurrence of the last 30 characters); and a span that does not
+ * name text in `text` is never returned.
  */
 import { findTextOccurrences } from "docxodus";
 
@@ -22,11 +26,59 @@ import type { SpanAnnotationJson } from "../core/index";
 import { ANNOTATION_LABEL_CLASS } from "./constants";
 import {
   getGlobalOffsetFromDomPosition,
+  isDrawableSpan,
   pickClosestOccurrence,
 } from "./docxOffsetUtils";
 
 /** Every occurrence, however many (the docxodus default is 100). */
 const ALL_OCCURRENCES = Number.MAX_SAFE_INTEGER;
+
+/** A run of whitespace, or a run of anything else. */
+const WHITESPACE_OR_NOT = /\s+|\S+/g;
+
+/**
+ * `text` with every run of whitespace collapsed to one space (as
+ * `text.replace(/\s+/g, " ")` does), and for each of its UTF-16 units the
+ * offset in `text` it comes from (a run's first, for a collapsed run).
+ */
+function collapseWhitespace(text: string): {
+  collapsed: string;
+  offsets: number[];
+} {
+  let collapsed = "";
+  const offsets: number[] = [];
+  for (const { 0: part, index } of text.matchAll(WHITESPACE_OR_NOT)) {
+    if (/^\s/.test(part)) {
+      collapsed += " ";
+      offsets.push(index);
+      continue;
+    }
+    collapsed += part;
+    for (let unit = 0; unit < part.length; unit++) offsets.push(index + unit);
+  }
+  return { collapsed, offsets };
+}
+
+/**
+ * The occurrences of `query` in `text` when every run of whitespace in both
+ * counts as one space, as offsets into `text`. `query` must have no
+ * whitespace at either end, so every occurrence starts and ends on a
+ * character of `text`.
+ */
+function whitespaceInsensitiveOccurrences(
+  text: string,
+  query: string
+): SpanAnnotationJson[] {
+  const { collapsed, offsets } = collapseWhitespace(text);
+  return findTextOccurrences(
+    collapsed,
+    query.replace(/\s+/g, " "),
+    ALL_OCCURRENCES
+  ).map(({ start, end }) => ({
+    start: offsets[start],
+    end: offsets[end - 1] + 1,
+  }));
+}
 
 /** The native selection, when it selects text and starts in `pages`. */
 export function selectionIn(pages: HTMLElement | null): Selection | null {
@@ -55,7 +107,7 @@ export function selectedSpan(
   // Get the raw selected text. For cross-page selections this may
   // include page number artifacts (e.g. "...text\n1\nmore text...").
   // Clean it by removing isolated numbers on their own lines
-  // (PaginatedDocument page numbers).
+  // (the pagination's page numbers).
   const rawText = selection.toString();
   const cleanedText = rawText
     .replace(/\n\d+\n/g, "\n") // Remove "1", "2" etc. between newlines
@@ -67,56 +119,27 @@ export function selectedSpan(
   let occurrences = findTextOccurrences(text, cleanedText, ALL_OCCURRENCES);
 
   // If no exact match (common for cross-page selections with whitespace
-  // differences), try collapsing whitespace for a fuzzy match
+  // differences), match with every run of whitespace as one space
   if (occurrences.length === 0) {
-    const normalized = cleanedText.replace(/\s+/g, " ");
-    occurrences = findTextOccurrences(
-      text.replace(/\s+/g, " "),
-      normalized,
-      ALL_OCCURRENCES
-    );
-    // Map back to original docText offsets by searching from the
-    // normalized match position
-    if (occurrences.length > 0) {
-      const approxStart = occurrences[0].start;
-      // Find the actual position in docText near this offset
-      const searchWindow = text.substring(
-        Math.max(0, approxStart - 50),
-        approxStart + cleanedText.length + 50
-      );
-      const firstWords = cleanedText.substring(0, 30);
-      const idx = searchWindow.indexOf(firstWords);
-      occurrences = [];
-      if (idx >= 0) {
-        const realStart = Math.max(0, approxStart - 50) + idx;
-        // Find the end by matching the last few words
-        const lastWords = cleanedText.substring(cleanedText.length - 30);
-        const endSearch = text.indexOf(
-          lastWords,
-          realStart + cleanedText.length - 60
-        );
-        if (endSearch >= 0) {
-          occurrences = [
-            { start: realStart, end: endSearch + lastWords.length },
-          ];
-        }
-      }
-    }
+    occurrences = whitespaceInsensitiveOccurrences(text, cleanedText);
   }
 
   if (occurrences.length === 0) return null;
 
   // Disambiguate if multiple matches using DOM position
-  if (occurrences.length === 1) return occurrences[0];
-  const range = selection.getRangeAt(0);
-  const startOffset = getGlobalOffsetFromDomPosition(
-    pages,
-    range.startContainer,
-    range.startOffset,
-    ANNOTATION_LABEL_CLASS,
-    pageNumberClass
-  );
-  return startOffset === null
-    ? occurrences[0]
-    : pickClosestOccurrence(occurrences, startOffset);
+  let span = occurrences[0];
+  if (occurrences.length > 1) {
+    const range = selection.getRangeAt(0);
+    const startOffset = getGlobalOffsetFromDomPosition(
+      pages,
+      range.startContainer,
+      range.startOffset,
+      ANNOTATION_LABEL_CLASS,
+      pageNumberClass
+    );
+    if (startOffset !== null) {
+      span = pickClosestOccurrence(occurrences, startOffset);
+    }
+  }
+  return isDrawableSpan(span, text) ? span : null;
 }

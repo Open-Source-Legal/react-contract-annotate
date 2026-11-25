@@ -12,11 +12,12 @@
  * stylesheet of the label records (ids unescaped) and it draws
  * only one of two overlapping spans (the one starting first; the earlier
  * entry on a tie). `findTextOccurrences` stops at `maxResults` (default 100),
- * as docxodus' does. `PaginatedDocument` renders the HTML inside its page
- * container (`<cssPrefix>container`) and reports pagination on mount and on
- * every new `html`.
+ * as docxodus' does. `usePagination` writes the HTML into the container it
+ * is given, inside a page container (`<cssPrefix>container`), and reports a
+ * new result for every new `html`, or fails when `paginationError` is set.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { RefObject } from "react";
 import type { ExternalAnnotationSet } from "docxodus";
 
 export type Deferred<T> = {
@@ -51,7 +52,10 @@ export const fakeDocxodus = {
         labelStylesheet(set) + html + drawnEntries(set).map(marker).join("")
       )
   ),
+  /** When set, every pagination fails with it. */
+  paginationError: null as Error | null,
   reset() {
+    fakeDocxodus.paginationError = null;
     fakeDocxodus.conversions = [];
     fakeDocxodus.initialize.mockReset();
     fakeDocxodus.initialize.mockImplementation(() => Promise.resolve());
@@ -120,29 +124,37 @@ export function docxodusModule() {
   };
 }
 
-function FakePaginatedDocument({
-  html,
-  cssPrefix = "page-",
-  onPaginationComplete,
-}: {
-  html: string;
-  cssPrefix?: string;
-  onPaginationComplete?: () => void;
-}) {
+/**
+ * `usePagination`: like docxodus', it writes into the container itself and
+ * reports a new result for every new `html` (and options), or the error of a
+ * failed pagination (`fakeDocxodus.paginationError`), after putting the HTML
+ * in the container as the real one does before it fails.
+ */
+function fakeUsePagination(
+  html: string,
+  containerRef: RefObject<HTMLElement | null>,
+  { cssPrefix = "page-", scale = 1 }: { cssPrefix?: string; scale?: number } = {}
+) {
+  const [result, setResult] = useState<{ totalPages: number } | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   useEffect(() => {
-    onPaginationComplete?.();
-  }, [html, onPaginationComplete]);
-  return (
-    <div
-      className={`${cssPrefix}container`}
-      data-fake-paginated=""
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
+    const container = containerRef.current;
+    if (!html || !container) return;
+    const failure = fakeDocxodus.paginationError;
+    if (failure) {
+      container.innerHTML = html;
+      setError(failure);
+      return;
+    }
+    container.innerHTML = `<div class="${cssPrefix}container" data-fake-paginated="">${html}</div>`;
+    setError(null);
+    setResult({ totalPages: 1 });
+  }, [html, containerRef, cssPrefix, scale]);
+  return { result, isPaginating: false, error, paginate: () => {} };
 }
 
 export function docxodusReactModule() {
-  return { PaginatedDocument: FakePaginatedDocument };
+  return { usePagination: fakeUsePagination };
 }
 
 /** Lets every pending promise callback run. */

@@ -8,9 +8,16 @@
  *   through `@media`, `@supports` and `@container`;
  * - `written`: the same reading of the stylesheet the isolation returns;
  * - `droppedRules`: the kinds of the other rules docxodus wrote;
- * - `inlineEmitted` / `inlineWritten`: the `style` attributes before and
- *   after;
- * - `rejected`: whether the stylesheet failed its validation.
+ * - `inlineEmitted` / `inlineWritten`: the declarations of each `style`
+ *   attribute, as the browser parses them, before and after;
+ * - `rejected`: whether the stylesheet failed its validation;
+ * - `elementsEmitted` / `elementsWritten`: the tag of every element of the
+ *   document's body docxodus wrote, before the sanitiser, and of every
+ *   element the isolation returns, in order (stylesheets left out);
+ * - `attributesLost` / `attributesAdded`: element by element, the
+ *   attributes (`tag[name]`) docxodus wrote that the sanitiser and the
+ *   isolation took away, and those they added;
+ * - `links`: how many links (`a[href]`) docxodus wrote.
  */
 import { convertDocxToHtml, initialize, PaginationMode } from "docxodus";
 import { useEffect, useState } from "react";
@@ -28,6 +35,11 @@ export interface ParityReport {
   inlineEmitted: string[];
   inlineWritten: string[];
   rejected: boolean;
+  elementsEmitted: string[];
+  elementsWritten: string[];
+  attributesLost: string[];
+  attributesAdded: string[];
+  links: number;
 }
 
 /** A fixed scope, so the report does not change from run to run. */
@@ -68,6 +80,15 @@ function read(css: string): { declarations: string[]; others: string[] } {
   return { declarations, others };
 }
 
+/** The declarations of an element's `style` attribute, as parsed. */
+function inlineDeclarations(element: Element): string {
+  const { style } = element as HTMLElement;
+  return Array.from(
+    style,
+    (name) => `${name}: ${style.getPropertyValue(name)}`
+  ).join("; ");
+}
+
 /** The elements of `html`: its stylesheets and its `style` attributes. */
 function parts(html: string): { sheets: string[]; inline: string[] } {
   const template = document.createElement("template");
@@ -79,8 +100,48 @@ function parts(html: string): { sheets: string[]; inline: string[] } {
     ),
     inline: Array.from(
       template.content.querySelectorAll("[style]"),
-      (element) => element.getAttribute("style") ?? ""
+      inlineDeclarations
     ),
+  };
+}
+
+/** The elements under `root` but stylesheets, in document order. */
+function elementsUnder(root: ParentNode): Element[] {
+  return Array.from(root.querySelectorAll("*")).filter(
+    (element) => element.tagName !== "STYLE"
+  );
+}
+
+/** What the sanitiser and the isolation did to the elements of `html`. */
+function elementParity(html: string, isolatedHtml: string) {
+  // Parsed as the document docxodus wrote; a parsed document loads nothing.
+  const emitted = elementsUnder(
+    new DOMParser().parseFromString(html, "text/html").body
+  );
+  const template = document.createElement("template");
+  template.innerHTML = isolatedHtml;
+  const written = elementsUnder(template.content);
+  const tag = (element: Element) => element.tagName.toLowerCase();
+  const attributesLost: string[] = [];
+  const attributesAdded: string[] = [];
+  emitted.forEach((before, index) => {
+    const after = written[index];
+    if (!after) return;
+    const kept = new Set(after.getAttributeNames());
+    for (const name of before.getAttributeNames()) {
+      if (!kept.has(name)) attributesLost.push(`${tag(before)}[${name}]`);
+    }
+    const had = new Set(before.getAttributeNames());
+    for (const name of after.getAttributeNames()) {
+      if (!had.has(name)) attributesAdded.push(`${tag(after)}[${name}]`);
+    }
+  });
+  return {
+    elementsEmitted: emitted.map(tag),
+    elementsWritten: written.map(tag),
+    attributesLost,
+    attributesAdded,
+    links: emitted.filter((element) => element.matches("a[href]")).length,
   };
 }
 
@@ -108,6 +169,7 @@ async function report(url: string): Promise<ParityReport> {
     inlineEmitted: before.inline,
     inlineWritten: parts(isolated.html).inline,
     rejected: isolated.cssRejected,
+    ...elementParity(html, isolated.html),
   };
 }
 

@@ -20,7 +20,7 @@ describe("the property allow-list", () => {
     ["boxes", "display top left bottom right width height min-height"],
     ["boxes", "max-width margin-top margin-right margin-bottom margin-left"],
     ["boxes", "padding-top padding-left overflow-x overflow-y box-sizing"],
-    ["boxes", "visibility opacity z-index float clear pointer-events zoom"],
+    ["boxes", "opacity z-index float clear zoom"],
     ["boxes", "transform transform-origin box-shadow"],
     ["borders", "border-top-width border-top-style border-top-color"],
     ["borders", "border-bottom-left-radius outline-color outline-offset"],
@@ -212,6 +212,43 @@ describe("properties kept with a narrower value", () => {
       ]);
     }
   });
+
+  test.each([
+    [
+      "visibility",
+      ["hidden", "collapse", "inherit", "HIDDEN"],
+      ["visible", "VISIBLE", "initial", "unset", "revert", "revert-layer"],
+    ],
+    [
+      "pointer-events",
+      ["none", "NONE"],
+      ["auto", "all", "visible", "visiblePainted", "inherit", "initial"],
+    ],
+  ])(
+    "%s: never what would show the document, or let it take the pointer, inside a viewer the host hid",
+    (name, kept, dropped) => {
+      expect(ALLOWED_PROPERTIES.has(name)).toBe(true);
+      for (const value of kept) {
+        expect([value, isAllowedDeclaration(name, value)]).toEqual([
+          value,
+          true,
+        ]);
+      }
+      for (const value of [
+        ...dropped,
+        "unset",
+        "revert",
+        `var(--x, ${dropped[0]})`,
+        `env(nope, ${dropped[0]})`,
+        `${kept[0]} ${dropped[0]}`,
+      ]) {
+        expect([value, isAllowedDeclaration(name, value)]).toEqual([
+          value,
+          false,
+        ]);
+      }
+    }
+  );
 
   test("background-image: never an image", () => {
     expect(isAllowedDeclaration("background-image", "none")).toBe(true);

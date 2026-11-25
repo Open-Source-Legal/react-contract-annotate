@@ -22,10 +22,14 @@
  * animations and transitions); and what shows or fetches other content
  * (`content`, `cursor`, `mask*`, `filter`, `backdrop-filter`, `clip-path`,
  * `shape-outside`, `list-style-image`, `border-image*`, `src`, `behavior`,
- * `-moz-binding`). Three properties are kept with a narrower value:
+ * `-moz-binding`). Five properties are kept with a narrower value:
  * - `position`: `static`, `relative` or `absolute` only;
  * - `background-image`: `none` or `initial` only, which is what a
  *   `background` shorthand without an image expands to; never an image;
+ * - `visibility`: `hidden`, `collapse` or `inherit` only, and
+ *   `pointer-events`: `none` only, which is what docxodus writes: a document
+ *   can hide its content or let the pointer through it, never make itself
+ *   visible or clickable inside a viewer the host hid or made inert;
  * - `--docx-auto-line-spacing`, the one custom property kept: a plain
  *   number. docxodus declares it on paragraphs and reads it in exactly one
  *   declaration, `line-height: calc(1lh * var(--docx-auto-line-spacing))`,
@@ -145,6 +149,8 @@ export const ALLOWED_PROPERTIES: ReadonlySet<string> = new Set([
 const NARROWED_VALUES: ReadonlyMap<string, RegExp> = new Map([
   ["position", /^(?:static|relative|absolute)$/],
   ["background-image", /^(?:none|initial)$/],
+  ["visibility", /^(?:hidden|collapse|inherit)$/],
+  ["pointer-events", /^none$/],
 ]);
 
 /** The functions a value may call. */

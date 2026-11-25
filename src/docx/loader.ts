@@ -23,11 +23,14 @@
  * Changed from OpenContracts: the runtime is initialised from the host's
  * `wasmBaseUrl` (no `import.meta.env`), in parallel with fetching the bytes;
  * failures are reported through the document status instead of a message in
- * the view; and the document is made the annotator's own (`isolation.ts`):
- * converted with the scope's class prefixes, its stylesheet taken out,
- * scoped and reduced to allow-listed declarations (and dropped, with a
- * development warning, when the result fails its validation), its inline
- * styles reduced the same way, its ids prefixed.
+ * the view; the sanitiser keeps only the elements and attributes docxodus
+ * writes (`htmlAllowList.ts`) instead of DOMPurify's defaults; and the
+ * document is made the annotator's own (`isolation.ts`): converted with the
+ * scope's class prefixes, its stylesheet taken out, scoped and reduced to
+ * allow-listed declarations (and dropped, with a development warning, when
+ * the result fails its validation), its inline styles reduced the same way,
+ * its ids prefixed, its links opened in a new tab and its images' sources
+ * kept only when they are `data:` URLs.
  */
 import DOMPurify from "dompurify";
 import type { Config } from "dompurify";
@@ -36,6 +39,7 @@ import { useEffect, useState } from "react";
 
 import { useDevWarnOnce, useSetDocumentStatus } from "../core/index";
 import type { DocxAnnotatorProps } from "../core/index";
+import { ALLOWED_ATTRIBUTES, ALLOWED_TAGS } from "./htmlAllowList";
 import { isolateDocument } from "./isolation";
 import type { DocxScope } from "./isolation";
 
@@ -50,18 +54,14 @@ export interface DocxDocument {
 }
 
 /**
- * DOMPurify config that preserves docxodus formatting (styles, classes)
- * while blocking scripts, event handlers, and dangerous elements.
+ * DOMPurify config: only the elements and attributes docxodus writes
+ * (`htmlAllowList.ts`), its `data-*` attributes, and its `<style>` blocks
+ * (taken out by `isolateDocument`).
  */
 const SANITIZE_CONFIG: Config = {
   FORCE_BODY: true,
-  ADD_ATTR: [
-    "data-annotation-id",
-    "data-label-id",
-    "data-label",
-    "class",
-    "style",
-  ],
+  ALLOWED_TAGS: [...ALLOWED_TAGS],
+  ALLOWED_ATTR: [...ALLOWED_ATTRIBUTES],
   ADD_TAGS: ["style"],
 };
 

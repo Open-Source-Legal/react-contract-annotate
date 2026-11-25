@@ -24,6 +24,8 @@ const CENTRE_TOLERANCE_PX = 80;
 const SIZE_TOLERANCE_PX = 1;
 /** A zoom at which the fixture's annotations sit below the first view. */
 const TALL_ZOOM = 3;
+/** A zoom at which a landscape page is well short of the viewer. */
+const SMALL_ZOOM = 0.5;
 /** At `TALL_ZOOM`, a horizontal scroll that shows both d-1 and d-2. */
 const CLICK_SCROLL_LEFT = 300;
 /** Settle time after a drag's release, and after a click (UI update). */
@@ -1454,6 +1456,52 @@ test("document CSS and inline styles fetch nothing", async ({
   await expectOnlyControlRequested(page, requested);
 });
 
+/** A GIF of one transparent pixel, as a data: URL (no request). */
+const PIXEL = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+
+test("document HTML fetches nothing: no remote image source, media, form, SVG, MathML, background or popover", async ({
+  mount,
+  page,
+}) => {
+  const requested = await recordInvalidRequests(page);
+  const X = "https://example.invalid";
+  await mount(
+    <IsolatedHtml
+      html={
+        `<p data-case="img"><img src="${X}/img" alt="a"></p>` +
+        `<p data-case="srcset"><img src="${PIXEL}" srcset="${X}/srcset 2x"></p>` +
+        `<picture><source srcset="${X}/source"><img src="${PIXEL}"></picture>` +
+        `<table background="${X}/table"><tbody><tr><td background="${X}/td">x</td></tr></tbody></table>` +
+        `<video poster="${X}/poster" src="${X}/video" autoplay muted></video>` +
+        `<audio autoplay src="${X}/audio"></audio>` +
+        `<input type="image" src="${X}/input">` +
+        `<form action="${X}/form"><button formaction="${X}/formaction">b</button></form>` +
+        `<svg width="10" height="10"><image href="${X}/svg-image" width="10" height="10"></image>` +
+        `<rect width="10" height="10" fill="url(${X}/fill#x)"></rect></svg>` +
+        "<math><mi>x</mi></math>" +
+        '<div popover="manual" id="pop">popover</div><button popovertarget="pop">open</button>' +
+        `<object data="${X}/object"></object><embed src="${X}/embed"><iframe src="${X}/iframe"></iframe>` +
+        `<link rel="stylesheet" href="${X}/link.css"><link rel="preload" as="image" href="${X}/preload">` +
+        `<img src="${PIXEL}" alt="kept">`
+      }
+    />
+  );
+  const scopeElement = page.locator("[data-rca-docx]");
+  await expect(scopeElement.locator('img[alt="kept"]')).toHaveCount(1);
+  // Nothing that could fetch, or open above the page, is left.
+  await expect(
+    scopeElement.locator(
+      "svg, math, video, audio, source, picture, input, form, button, object, embed, iframe, link, [popover], [srcset], [background]"
+    )
+  ).toHaveCount(0);
+  expect(
+    await scopeElement
+      .locator("img")
+      .evaluateAll((images) => images.map((img) => img.getAttribute("src")))
+  ).toEqual([null, PIXEL, PIXEL, PIXEL]);
+  await expectOnlyControlRequested(page, requested);
+});
+
 test("several style blocks are scoped as the one stylesheet inserted: an open url( does not swallow the next", async ({
   mount,
   page,
@@ -1674,11 +1722,129 @@ test("a stylesheet the browser reads back differently is dropped; the document a
   ).not.toContain("Cambria");
 });
 
+/** A laid-out link of the hyperlink fixture, by its text. */
+function documentLink(page: Page, text: string): Locator {
+  return pages(page).locator("a", { hasText: text });
+}
+
+test("a click on a link in the document never navigates the page: onOpenLink gets its URL with source native", async ({
+  mount,
+  page,
+}) => {
+  const requested = await recordInvalidRequests(page);
+  await mount(<DocxHarness fixture="hyperlink" />);
+  await waitForDocumentLoad(page);
+  const url = page.url();
+  // Every link opens in a new tab, with neither opener nor referrer.
+  expect(
+    await pages(page)
+      .locator("a[href]")
+      .evaluateAll((links) =>
+        links.map((link) => [
+          link.getAttribute("target"),
+          link.getAttribute("rel"),
+        ])
+      )
+  ).toEqual(Array(4).fill(["_blank", "noopener noreferrer"]));
+
+  await clickOn(documentLink(page, "example site"));
+  await clickOn(documentLink(page, "relative page"));
+  await clickOn(documentLink(page, "write to us"), { toggle: true });
+
+  expect(page.url()).toBe(url);
+  expect(await harnessEvents(page, "onOpenLink")).toEqual([
+    ["onOpenLink", "https://example.invalid/docx-link", "native"],
+    ["onOpenLink", "docx-relative.html", "native"],
+    ["onOpenLink", "mailto:legal@example.invalid", "native"],
+  ]);
+  expect(requested).toEqual([]);
+  // The click was the link's: no annotation selection changed.
+  expect(await harnessEvents(page, "onSelectionChange")).toEqual([]);
+});
+
+test("without onOpenLink, an https link opens in a new tab and a relative one does nothing", async ({
+  mount,
+  page,
+}) => {
+  await page.context().route("**/example.invalid/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "opened" })
+  );
+  await mount(<DocxHarness fixture="hyperlink" omitCallbacks={["onOpenLink"]} />);
+  await waitForDocumentLoad(page);
+  const url = page.url();
+
+  const opened = page.context().waitForEvent("page");
+  await clickOn(documentLink(page, "example site"));
+  const tab = await opened;
+  await tab.waitForLoadState();
+  expect(tab.url()).toBe("https://example.invalid/docx-link");
+  // No opener: the new tab cannot reach the annotator's page.
+  expect(await tab.evaluate(() => window.opener)).toBeNull();
+  await tab.close();
+
+  const pagesBefore = page.context().pages().length;
+  await clickOn(documentLink(page, "relative page"));
+  expect(page.context().pages()).toHaveLength(pagesBefore);
+  expect(page.url()).toBe(url);
+});
+
+test("a link to a bookmark scrolls the viewer to it and leaves the page's URL alone", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DocxHarness fixture="hyperlink" props={{ defaultZoom: TALL_ZOOM }} />
+  );
+  await waitForDocumentLoad(page);
+  const url = page.url();
+  const bookmark = pages(page).locator('[id$="-Definitions"]');
+  await expect(bookmark).toHaveCount(1);
+  const before = await scrollTop(page);
+
+  await clickOn(documentLink(page, "definitions"));
+  await settledScrollTop(annotatorRoot(page));
+
+  expect(page.url()).toBe(url);
+  expect(await scrollTop(page)).toBeGreaterThan(before);
+  const { top, bottom, viewHeight } = await inRootView(page, bookmark);
+  expect(top).toBeGreaterThanOrEqual(0);
+  expect(bottom).toBeLessThanOrEqual(viewHeight);
+});
+
+test("the view is as tall as its pages: pages that fit the viewer do not scroll it", async ({
+  mount,
+  page,
+}) => {
+  // Half-size landscape pages: well short of the viewer, and of the viewport.
+  await mount(
+    <DocxHarness fixture="landscape" props={{ defaultZoom: SMALL_ZOOM }} />
+  );
+  await waitForDocumentLoad(page);
+  await expect(pageBoxes(page)).toHaveCount(1);
+  const root = annotatorRoot(page);
+  expect(
+    await root.evaluate((el) => el.scrollHeight <= el.clientHeight)
+  ).toBe(true);
+});
+
 /** The page-scale property docxodus declares and nothing reads. */
 const PAGE_SCALE = "--rca-parity-page-scale: 1.00";
+/**
+ * What Chromium reads a `border` shorthand of docxodus' table rules as,
+ * besides the borders: the border image at its initial values. The
+ * allow-list drops border images (they can fetch); at these values they
+ * draw nothing.
+ */
+const BORDER_IMAGE_INITIAL: readonly string[] = [
+  "border-image-source: none",
+  "border-image-slice: 100%",
+  "border-image-width: 1",
+  "border-image-outset: 0",
+  "border-image-repeat: stretch",
+];
 
-for (const fixture of ["test", "landscape"]) {
-  test(`parity: no declaration docxodus writes for ${fixture}.docx is dropped`, async ({
+for (const fixture of ["test", "landscape", "hyperlink", "features"]) {
+  test(`parity: no element, attribute or declaration docxodus writes for ${fixture}.docx is dropped`, async ({
     mount,
     page,
   }) => {
@@ -1696,14 +1862,52 @@ for (const fixture of ["test", "landscape"]) {
     expect(report.emitted).toContain("--docx-auto-line-spacing: 1.15");
     expect(report.emitted).toContain("white-space-collapse: preserve");
     expect(report.emitted).toContain("zoom: 1 !important");
-    // Every declaration is written, in order, as it was read; but one: the
-    // page-scale custom property, which docxodus declares and nothing reads.
+    // Every declaration is written, in order, as it was read; but the
+    // page-scale custom property, which docxodus declares and nothing reads,
+    // and, for the document with a table, its border image's initial values.
     expect(report.emitted.filter((d) => d === PAGE_SCALE)).toHaveLength(1);
+    const borderImage = report.emitted.filter((d) =>
+      BORDER_IMAGE_INITIAL.includes(d)
+    );
+    expect(borderImage).toEqual(
+      fixture === "features" ? BORDER_IMAGE_INITIAL : []
+    );
     expect(report.written).toEqual(
-      report.emitted.filter((d) => d !== PAGE_SCALE)
+      report.emitted.filter(
+        (d) => d !== PAGE_SCALE && !BORDER_IMAGE_INITIAL.includes(d)
+      )
     );
     // Of its rules, only @page (the whole page's) is not kept.
     expect(report.droppedRules).toEqual(["CSSPageRule"]);
     expect(report.inlineWritten).toEqual(report.inlineEmitted);
+
+    // Every element docxodus wrote in the body is kept, in order.
+    expect(report.elementsEmitted.length).toBeGreaterThan(0);
+    expect(report.elementsWritten).toEqual(report.elementsEmitted);
+    // And every attribute, but the ids of the pagination's staging and page
+    // containers, which the isolation removes; it adds a target and a rel to
+    // each link.
+    expect(report.attributesLost).toEqual(["div[id]", "div[id]"]);
+    expect(report.attributesAdded).toEqual(
+      Array.from({ length: report.links }).flatMap(() => [
+        "a[target]",
+        "a[rel]",
+      ])
+    );
   });
 }
+
+test("parity: the features fixture has what the lists of the sanitiser were derived from", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxParity url="/fixtures/docx/features.docx" />);
+  const text = await page.locator("[data-parity]").textContent();
+  const report = JSON.parse(text ?? "") as ParityReport;
+  expect([...new Set(report.elementsEmitted)].sort()).toEqual(
+    [
+      "br", "col", "colgroup", "div", "h1", "h2", "img", "p", "span", "sub",
+      "sup", "table", "tbody", "td", "tr",
+    ].sort()
+  );
+});

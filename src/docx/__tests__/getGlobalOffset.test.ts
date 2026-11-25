@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getGlobalOffsetFromDomPosition,
+  isDrawableSpan,
   pickClosestOccurrence,
 } from "../docxOffsetUtils";
 
@@ -141,5 +142,18 @@ describe("pickClosestOccurrence (disambiguation)", () => {
       start: 498,
       end: 503,
     });
+  });
+});
+
+describe("isDrawableSpan", () => {
+  it("is true for integer offsets with 0 <= start < end <= text length", () => {
+    expect(isDrawableSpan({ start: 0, end: 1 }, "ab")).toBe(true);
+    expect(isDrawableSpan({ start: 0, end: 2 }, "ab")).toBe(true);
+    expect(isDrawableSpan({ start: 0, end: 3 }, "ab")).toBe(false);
+    expect(isDrawableSpan({ start: 1, end: 1 }, "ab")).toBe(false);
+    expect(isDrawableSpan({ start: 1, end: 0 }, "ab")).toBe(false);
+    expect(isDrawableSpan({ start: -1, end: 1 }, "ab")).toBe(false);
+    expect(isDrawableSpan({ start: 0.5, end: 1 }, "ab")).toBe(false);
+    expect(isDrawableSpan({ start: Number.NaN, end: 1 }, "ab")).toBe(false);
   });
 });

@@ -4,7 +4,7 @@
  * interactions. The converted HTML (`loader.ts`) gets the visible span
  * annotations, the span highlights and the pending selection projected onto
  * it by docxodus (`projection.ts`), is laid out in pages by `docxodus/react`'s
- * `PaginatedDocument`, and is styled by its own stylesheet, scoped to this
+ * `usePagination`, and is styled by its own stylesheet, scoped to this
  * annotator (`isolation.ts`), plus the stylesheet of `styles.ts` (label
  * colours and chips, selection, highlight colours), which changes without
  * projecting again.
@@ -29,9 +29,9 @@
  * part of an annotation or a highlight is `[data-annotation-id="<id>"]`
  * with `data-label-id` the annotation's label id, or `__highlight__` /
  * `__highlight_active__` for a highlight and `__pending__` (id
- * `__pending__`) for the pending selection. `PaginatedDocument` also keeps
- * an invisible copy of the document in its staging element, which nothing
- * here looks at.
+ * `__pending__`) for the pending selection. The pagination also keeps an
+ * invisible copy of the document in its staging element, which nothing here
+ * looks at.
  *
  * Interactions:
  * - Text selection: a mouse-up with a non-empty native selection in the
@@ -45,6 +45,11 @@
  *   selection, all as user changes; every click on an annotation goes to
  *   `onAnnotationClick`. Highlights and the pending selection are not
  *   clicked: a click on them is a click elsewhere.
+ * - Links in the document: a click on one never navigates the page the
+ *   annotator is in. A link to elsewhere goes through the link policy
+ *   (`useOpenLink`, source `"native"`); a link to a bookmark in the document
+ *   scrolls the root to it. Either way the click is the link's, not an
+ *   annotation's; the release of a text selection opens nothing.
  * - Hover goes to `onAnnotationHover`.
  * - Scroll requests: once the document is laid out, the target's first
  *   element is centred in the root (`centreBox`) and the request completed
@@ -56,7 +61,8 @@
  * to draw but did not are written to `suppressedRef` (the driver's
  * `canDraw` reads it) and the shell is told drawability may have changed.
  *
- * Status: `ready` once the first projection of a document is laid out.
+ * Status: `ready` once the first projection of a document is laid out;
+ * `error` when a pagination fails (what it left in the pages is removed).
  *
  * Removed from OpenContracts: the built-in selection menu and its portal,
  * `getSpan` and the CRUD callbacks, the read-only / label gates on selecting
@@ -66,21 +72,15 @@
  *
  * Changed from OpenContracts: elements are looked for in the laid-out pages
  * only; the indentation docxodus adds to projected HTML is removed (see
- * `withoutIndentation`); nothing is projected while the button is down; and
+ * `withoutIndentation`); nothing is projected while the button is down;
  * scrolling centres through `centreBox` and completes the scroll request
- * once landed, instead of `scrollIntoView` on every selection change.
+ * once landed, instead of `scrollIntoView` on every selection change; and
+ * the document's links follow the link policy instead of navigating.
  */
 import { AnnotationLabelMode, projectAnnotationsOntoHtml } from "docxodus";
 import type { ExternalAnnotationProjectionSettings } from "docxodus";
-import { PaginatedDocument } from "docxodus/react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { usePagination } from "docxodus/react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
@@ -97,6 +97,7 @@ import {
   useNotifyDrawabilityChanged,
   useOnAnnotationClick,
   useOnAnnotationHover,
+  useOpenLink,
   usePendingActions,
   usePendingSelection,
   useRootElement,
@@ -116,6 +117,7 @@ import type {
   SpanAnnotationJson,
 } from "../core/index";
 import {
+  BOOKMARK_SCROLL_BEHAVIOR,
   CSS_CLASS_PREFIX,
   DOCUMENT_BACKGROUND,
   PAGE_GAP_PX,
@@ -166,10 +168,13 @@ const FRAME_STYLE: CSSProperties = Object.freeze({
 });
 
 /**
- * The paginated view grows with its pages and never scrolls itself: the
- * annotator's root is the scroll container.
+ * The element the pages are laid out in: as tall as its pages, and never
+ * scrolling itself (the annotator's root is the scroll container). Unlike
+ * `docxodus/react`'s `PaginatedDocument`, it has no minimum height (that
+ * one is at least as tall as the viewport).
  */
 const PAGINATED_STYLE: CSSProperties = Object.freeze({
+  backgroundColor: DOCUMENT_BACKGROUND,
   maxWidth: "100%",
   overflow: "visible",
 });
@@ -194,6 +199,25 @@ function projectedAt(
   }
   const element = target.closest("[data-annotation-id]");
   return element && pages.contains(element) ? describe(element) : null;
+}
+
+/** The link at `target`, inside the pages. */
+function linkAt(
+  target: EventTarget | null,
+  pages: HTMLElement | null
+): HTMLAnchorElement | null {
+  if (!pages || !(target instanceof Element)) return null;
+  const link = target.closest<HTMLAnchorElement>("a[href]");
+  return link && pages.contains(link) ? link : null;
+}
+
+/** The element of the pages with id `id`. */
+function elementWithId(pages: HTMLElement, id: string): HTMLElement | null {
+  return (
+    Array.from(pages.querySelectorAll<HTMLElement>("[id]")).find(
+      (element) => element.id === id
+    ) ?? null
+  );
 }
 
 /** Every projected element in the pages. */
@@ -277,6 +301,7 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   const { labelDisplay } = useDisplaySettings();
   const reportClick = useOnAnnotationClick();
   const reportHover = useOnAnnotationHover();
+  const openLink = useOpenLink();
 
   const containerClass = pageClass(scope, "container");
   const pagesOf = (): HTMLElement | null =>
@@ -321,9 +346,23 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   /** Whether the primary button is down after a press in the document. */
   const [pressed, setPressed] = useState(false);
   const [projection, setProjection] = useState<Projection | null>(null);
+  const projectionRef = useRef(projection);
+  useLayoutEffect(() => {
+    projectionRef.current = projection;
+  });
 
   useEffect(() => {
     if (docx === null || pressed) return;
+    // What is shown is already this projection: the release of a press,
+    // which runs this again, projects nothing new.
+    const current = projectionRef.current;
+    if (
+      current?.docx === docx &&
+      current.key === projectionKey &&
+      current.plan.set.content === text
+    ) {
+      return;
+    }
     let cancelled = false;
     const plan = latestPlan.current;
     const key = projectionKey;
@@ -354,16 +393,33 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   // A projection of an earlier document is never shown.
   const shown = projection?.docx === docx ? projection : null;
 
-  // ── Layout: the HTML PaginatedDocument last laid out ──
+  // ── Layout: the HTML last laid out in pages ──
+  // `usePagination` writes the pages into this element itself (React renders
+  // nothing in it), again whenever the HTML or the options change.
+  const paginatedRef = useRef<HTMLDivElement>(null);
+  const pagination = usePagination(shown?.html ?? "", paginatedRef, {
+    scale: zoom,
+    showPageNumbers: true,
+    pageGap: PAGE_GAP_PX,
+    cssPrefix: scope.pagePrefix,
+    fragmentParagraphs: true,
+  });
   const [laidOut, setLaidOut] = useState<Projection | null>(null);
   const shownRef = useRef(shown);
   useLayoutEffect(() => {
     shownRef.current = shown;
   });
-  // Stable: PaginatedDocument reports again whenever this function changes.
-  const onPaginationComplete = useCallback(() => {
-    setLaidOut(shownRef.current);
-  }, []);
+  // Every pagination that succeeds is a new result.
+  useEffect(() => {
+    if (pagination.result) setLaidOut(shownRef.current);
+  }, [pagination.result]);
+  // A pagination that fails leaves what it wrote in the element; nothing of
+  // it is shown, and the failure is the document's.
+  useEffect(() => {
+    if (!pagination.error) return;
+    paginatedRef.current?.replaceChildren();
+    setStatus({ state: "error", error: pagination.error });
+  }, [pagination.error, setStatus]);
   // A new projection with the same HTML needs no new layout.
   const rendered =
     shown !== null &&
@@ -464,10 +520,31 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   };
 
   // ── Clicks ──
+  /** Follows a link of the document, by the link policy or to a bookmark. */
+  const follow = (link: HTMLAnchorElement, pages: HTMLElement) => {
+    // As written: a relative URL is not resolved against the host's page.
+    const href = link.getAttribute("href") ?? "";
+    if (!href.startsWith("#")) {
+      openLink(href, "native");
+      return;
+    }
+    const bookmark = elementWithId(pages, href.slice(1));
+    if (root && bookmark) {
+      centreBox(root, bookmark, BOOKMARK_SCROLL_BEHAVIOR, () => {});
+    }
+  };
+
   const onClick = (event: ReactMouseEvent<HTMLDivElement>) => {
     const pages = pagesOf();
+    const link = linkAt(event.target, pages);
+    // A link in the document never navigates the page it is shown in.
+    if (link) event.preventDefault();
     // The release of a text selection, not a click.
     if (selectionIn(pages)) return;
+    if (link && pages) {
+      follow(link, pages);
+      return;
+    }
     const hit = projectedAt(event.target, pages);
     const annotation =
       hit?.kind === "annotation"
@@ -526,18 +603,7 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
       >
         {docx && <style>{docx.css}</style>}
         <style>{customCss}</style>
-        {shown && (
-          <PaginatedDocument
-            html={shown.html}
-            scale={zoom}
-            showPageNumbers={true}
-            pageGap={PAGE_GAP_PX}
-            backgroundColor={DOCUMENT_BACKGROUND}
-            cssPrefix={scope.pagePrefix}
-            style={PAGINATED_STYLE}
-            onPaginationComplete={onPaginationComplete}
-          />
-        )}
+        {shown && <div ref={paginatedRef} style={PAGINATED_STYLE} />}
       </div>
     </div>
   );

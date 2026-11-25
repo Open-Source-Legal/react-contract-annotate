@@ -224,6 +224,30 @@ test("visible span annotations are projected; a selection change that projects n
   expect(projectedIds()).toEqual(["d-1", "d-2", "d-3"]);
 });
 
+test("a press and its release, which change nothing projected, do not project again", async () => {
+  const { container } = setup();
+  await load();
+  const projections = fakeDocxodus.projectAnnotationsOntoHtml.mock.calls.length;
+  expect(projections).toBeGreaterThan(0);
+  const docx = container.querySelector("[data-rca-docx]") as HTMLElement;
+
+  for (let click = 0; click < 2; click++) {
+    fireEvent.mouseDown(docx, { button: 0 });
+    fireEvent.mouseUp(window);
+    fireEvent.click(docx);
+    await act(async () => {
+      await flushPromises();
+    });
+  }
+
+  expect(fakeDocxodus.projectAnnotationsOntoHtml).toHaveBeenCalledTimes(
+    projections
+  );
+  expect(
+    container.querySelector(`${PAGES} [data-annotation-id="d-1"]`)
+  ).not.toBeNull();
+});
+
 test("unsupported inputs each warn once in development", async () => {
   const { rerender } = setup({
     annotations: [
@@ -282,6 +306,122 @@ test("a load failure calls onError once and nothing is rendered", async () => {
   });
   expect(onError.mock.calls).toEqual([[failure]]);
   expect(container.querySelector(PAGES)).toBeNull();
+});
+
+test("a pagination failure calls onError once and renders the error slot instead of the loading slot", async () => {
+  const failure = new Error("pagination broke");
+  fakeDocxodus.paginationError = failure;
+  const onError = vi.fn();
+  const onDocumentLoad = vi.fn();
+  const { container } = setup({
+    onError,
+    onDocumentLoad,
+    renderLoading: () => <p data-slot="loading" />,
+    renderError: (error) => <p data-slot="error">failed: {error.message}</p>,
+  });
+  await load();
+
+  expect(onError.mock.calls).toEqual([[failure]]);
+  expect(onDocumentLoad).not.toHaveBeenCalled();
+  expect(container.querySelector('[data-slot="loading"]')).toBeNull();
+  expect(container.querySelector('[data-slot="error"]')?.textContent).toBe(
+    "failed: pagination broke"
+  );
+  // Neither the engine's own error text nor a half-laid-out document: the
+  // scope element holds the two stylesheets and an empty paginated element.
+  const docx = container.querySelector("[data-rca-docx]") as HTMLElement;
+  expect(Array.from(docx.children, (child) => child.tagName)).toEqual([
+    "STYLE",
+    "STYLE",
+    "DIV",
+  ]);
+  expect(docx.lastElementChild?.childNodes).toHaveLength(0);
+});
+
+test("the paginated view sets no height of its own: it is as tall as its pages", async () => {
+  const { container } = setup();
+  await load();
+  const docx = container.querySelector("[data-rca-docx]") as HTMLElement;
+  const styled = Array.from(docx.querySelectorAll<HTMLElement>("[style]"));
+  expect(styled.length).toBeGreaterThan(0);
+  for (const element of styled) {
+    expect(element.style.minHeight).toBe("");
+    expect(element.style.height).toBe("");
+  }
+});
+
+describe("links in the document", () => {
+  const LINKS =
+    '<p>See <a href="https://example.invalid/docx-link">the site</a>, ' +
+    '<a href="docx-relative.html">a page</a>, ' +
+    '<a href="mailto:legal@example.invalid">us</a> or ' +
+    '<a href="#Definitions">the definitions</a>.</p>' +
+    '<p><a id="Definitions"></a>Definitions.</p>';
+
+  /** The laid-out link whose text is `text`. */
+  function link(container: HTMLElement, text: string): HTMLElement {
+    const found = Array.from(
+      container.querySelectorAll<HTMLElement>(`${PAGES} a`)
+    ).find((anchor) => anchor.textContent === text);
+    if (!found) throw new Error(`no link "${text}"`);
+    return found;
+  }
+
+  test("a click goes to onOpenLink with source native, and never navigates", async () => {
+    const onOpenLink = vi.fn();
+    const { container } = setup({ onOpenLink });
+    await load(LINKS);
+
+    // `fireEvent` returns false once the default action is prevented.
+    expect(fireEvent.click(link(container, "the site"))).toBe(false);
+    expect(fireEvent.click(link(container, "a page"))).toBe(false);
+    expect(fireEvent.click(link(container, "us"), { ctrlKey: true })).toBe(
+      false
+    );
+    expect(onOpenLink.mock.calls).toEqual([
+      ["https://example.invalid/docx-link", "native"],
+      ["docx-relative.html", "native"],
+      ["mailto:legal@example.invalid", "native"],
+    ]);
+  });
+
+  test("without onOpenLink, an http(s) link opens in a new tab and anything else is ignored", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    try {
+      const { container } = setup();
+      await load(LINKS);
+
+      expect(fireEvent.click(link(container, "the site"))).toBe(false);
+      expect(fireEvent.click(link(container, "a page"))).toBe(false);
+      expect(fireEvent.click(link(container, "us"))).toBe(false);
+      expect(open.mock.calls).toEqual([
+        ["https://example.invalid/docx-link", "_blank", "noopener,noreferrer"],
+      ]);
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  test("a link to a bookmark scrolls the viewer to it, without changing the page's URL", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const onOpenLink = vi.fn();
+      const { container } = setup({ onOpenLink });
+      await load(LINKS);
+      const before = window.location.href;
+
+      expect(fireEvent.click(link(container, "the definitions"))).toBe(false);
+
+      expect(onOpenLink).not.toHaveBeenCalled();
+      expect(window.location.href).toBe(before);
+      const bookmark = scrollIntoView.mock.contexts[0] as Element;
+      expect(bookmark.id).toMatch(/-Definitions$/);
+      expect(container.querySelector(PAGES)?.contains(bookmark)).toBe(true);
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
+  });
 });
 
 test("hovering an annotation reports it with the host's object; leaving reports null", async () => {

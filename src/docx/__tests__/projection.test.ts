@@ -17,7 +17,6 @@ import {
 import {
   buildProjection,
   buildProjectionSet,
-  isDrawableSpan,
   suppressedTargets,
   withoutIndentation,
 } from "../projection";
@@ -297,16 +296,6 @@ test("the set is deterministic: equal input projects to an equal set", () => {
       highlights: [spanHighlight("h-1", 13, 17)],
     });
   expect(JSON.stringify(input())).toBe(JSON.stringify(input()));
-});
-
-test("isDrawableSpan: integer offsets with 0 <= start < end <= text length", () => {
-  expect(isDrawableSpan({ start: 0, end: 1 }, "ab")).toBe(true);
-  expect(isDrawableSpan({ start: 0, end: 2 }, "ab")).toBe(true);
-  expect(isDrawableSpan({ start: 0, end: 3 }, "ab")).toBe(false);
-  expect(isDrawableSpan({ start: 1, end: 1 }, "ab")).toBe(false);
-  expect(isDrawableSpan({ start: -1, end: 1 }, "ab")).toBe(false);
-  expect(isDrawableSpan({ start: 0.5, end: 1 }, "ab")).toBe(false);
-  expect(isDrawableSpan({ start: Number.NaN, end: 1 }, "ab")).toBe(false);
 });
 
 test("withoutIndentation drops only the whitespace docxodus indents projected HTML with", () => {

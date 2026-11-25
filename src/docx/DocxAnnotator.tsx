@@ -43,11 +43,10 @@ import type {
   InternalAnnotation,
   ScrollTarget,
 } from "../core/index";
-import { findSpanMatches } from "./docxOffsetUtils";
+import { findSpanMatches, isDrawableSpan } from "./docxOffsetUtils";
 import { createDocxScope } from "./isolation";
 import { useDocxDocument } from "./loader";
 import type { DocxSource } from "./loader";
-import { isDrawableSpan } from "./projection";
 import type { TargetIds } from "./projection";
 import { DocxView } from "./DocxView";
 

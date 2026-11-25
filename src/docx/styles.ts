@@ -19,6 +19,7 @@
  * source; the chip's font size and stacking are the custom properties
  * `--rca-label-font-size` and `--rca-z-label-chip`; a page zoomed wider
  * than the view is aligned to the start, so all of it can be scrolled to;
+ * the page container is as tall as its pages, not at least the viewport;
  * and the base highlight rule is written here, scoped, instead of by
  * `generateAnnotationCss`, whose per-label rules (`.oc-annot-label-<id>`,
  * unused: a projected element carries its colour inline) put label ids into
@@ -89,8 +90,14 @@ export function buildDocxCss({
 
   // docxodus centres the pages (`align-items: center`), so a page wider than
   // the view (zoomed in) overflows on both sides and its left part can never
-  // be scrolled to. `safe` aligns it to the start once it overflows.
-  rule([`.${pageClass(scope, "container")}`], "  align-items: safe center;");
+  // be scrolled to. `safe` aligns it to the start once it overflows. And it
+  // makes the page container at least as tall as the viewport (`min-height:
+  // 100vh`), so the view would scroll however short the document is: it is
+  // as tall as its pages.
+  rule(
+    [`.${pageClass(scope, "container")}`],
+    "  align-items: safe center;\n  min-height: 0;"
+  );
   // What every projected span looks like, in its label's colour (set inline
   // by docxodus as `--annot-color`).
   rule(

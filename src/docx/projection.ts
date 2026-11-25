@@ -50,6 +50,7 @@ import {
   PENDING_ENTRY_ID,
   PENDING_LABEL_ID,
 } from "./constants";
+import { isDrawableSpan } from "./docxOffsetUtils";
 
 type Entry = ExternalAnnotationSet["labelledText"][number];
 
@@ -65,19 +66,6 @@ export interface ProjectionInput {
   pending?: SpanAnnotationJson | null;
 }
 
-/** True when the offsets name a non-empty range of `text`. */
-export function isDrawableSpan(
-  { start, end }: SpanAnnotationJson,
-  text: string
-): boolean {
-  return (
-    Number.isInteger(start) &&
-    Number.isInteger(end) &&
-    start >= 0 &&
-    start < end &&
-    end <= text.length
-  );
-}
 
 /** What a projected entry (or the element docxodus makes of it) stands for. */
 export type EntryKind = "annotation" | "highlight" | "pending";

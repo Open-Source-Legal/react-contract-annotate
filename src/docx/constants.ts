@@ -15,13 +15,13 @@ export const CSS_CLASS_PREFIX = "oc-annot-";
 export const ANNOTATION_LABEL_CLASS = "oc-annot-label";
 
 /**
- * Class of the page numbers `PaginatedDocument` draws (not document text)
+ * Class of the page numbers docxodus' pagination draws (not document text)
  * with its default prefix; each annotator's own is `pageClass(scope,
  * "number")`.
  */
 export const PAGE_NUMBER_CLASS = "page-number";
 
-/** Gap (px) `PaginatedDocument` leaves between pages. */
+/** Gap (px) the pagination leaves between pages. */
 export const PAGE_GAP_PX = 20;
 
 /** Background of the paginated view (`OS_LEGAL_COLORS.background`). */
@@ -71,3 +71,6 @@ export const PENDING_ENTRY_ID = "__pending__";
  * OpenContracts' `SelectionLayer` literal).
  */
 export const PENDING_COLOR = "#0066cc";
+
+/** How a click on a link to a bookmark in the document scrolls to it. */
+export const BOOKMARK_SCROLL_BEHAVIOR: ScrollBehavior = "smooth";

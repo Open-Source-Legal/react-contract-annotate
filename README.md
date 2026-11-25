@@ -367,6 +367,10 @@ Each format keeps its own click model:
   (`enableNativeLinks`, default true). Both go to `onOpenLink(url, source)` when
   supplied; otherwise `http(s)` URLs open in a new tab with `noopener` and anything
   else is ignored.
+- **Links (DOCX).** Hyperlinks inside a DOCX follow the same policy, reported with
+  source `"native"` and the URL as the document wrote it (a relative URL is not
+  resolved, so without `onOpenLink` it is ignored). A click on one never navigates
+  your page; a link to a bookmark in the document scrolls the viewer to it.
 
 **Visibility.** Selected annotations, and the endpoints of the relations in
 `selectedRelationIds`, are always shown (those endpoints keep their SOURCE /
@@ -434,10 +438,16 @@ The converted document is untrusted input. What the library guarantees:
   page itself declared, which the browser then loads from the host's URL.
 - The viewer's frame **contains** layout, paint and style: a second barrier for
   boxes, and the only one for list numbering.
+- The document's HTML is reduced to the elements and attributes docxodus writes
+  (no SVG, MathML, media, forms, embedded content or popovers); an image keeps
+  its source only when it is a `data:` URL, and links go through the link policy
+  above. With the CSS allow-list, this is what keeps the document from making the
+  browser fetch a URL of its choosing.
 
 Styling outside the allow-list is dropped: images and gradients in CSS,
-transform functions, newer colour functions, `content` and `cursor`, and font
-names that need a CSS escape.
+transform functions, newer colour functions, `content` and `cursor`,
+`visibility` other than `hidden`, `collapse` or `inherit`, `pointer-events`
+other than `none`, and font names that need a CSS escape.
 
 Two limits are accepted:
 
