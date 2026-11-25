@@ -16,16 +16,22 @@
  * OpenContracts the layer was a sibling overlay beneath the boxes and
  * nothing passed their presses on to it.
  *
- * The gesture: a press arms it (and the document listeners); it becomes a
- * drag once the pointer has moved more than `CLICK_DRAG_TOLERANCE_PX` (a long
- * press, on touch), and only then clears the pending selection and the
- * annotation selection (with `{ source: "user" }`, and only when there is
- * one). A press released before that is a click, left to whatever was
- * clicked: it selects nothing. A release with Shift keeps the region; a
- * release without builds the draft from every kept region and this one, on
- * whichever pages they are, and completes it through core
- * (`useCompleteSelection`), which applies the outcomes. A draft with no
- * token completes nothing. A page without tokens (no PAWLs) ignores presses.
+ * The gesture: a press arms it (and the document listeners); nothing changes
+ * until the pointer has moved more than `CLICK_DRAG_TOLERANCE_PX`. Then it is
+ * a drag (on touch, a long press is), which clears the pending selection and
+ * the annotation selection (with `{ source: "user" }`, and only when there is
+ * one) and selects text. A release with Shift keeps the region; a release
+ * without builds the draft from every kept region and this one, on whichever
+ * pages they are, and completes it through core (`useCompleteSelection`),
+ * which applies the outcomes. A draft with no token completes nothing.
+ *
+ * A press released before it is a drag is a click, and selects no text. A
+ * click on the blank page (pressed and released on the page itself: this
+ * layer or its canvas, not on a box, a label chip or host content in it, or
+ * a link) clears the annotation selection and the pending selection, as
+ * above; a click on an annotation or highlight box clears nothing and is left
+ * to the box. A tap on the blank page is such a click. A page without tokens
+ * (no PAWLs) ignores presses.
  *
  * Painted here: the drag in progress and the kept regions on this page, with
  * the tokens they capture (`[data-rca-drag-region]`, `[data-rca-drag-token]`),
@@ -96,8 +102,14 @@ const CanvasWrapper = styled.div`
 
 type Point = { x: number; y: number };
 
-/** Where a press happened: in the viewport, and on the page (scale 1). */
-type Press = { client: Point; page: Point };
+/**
+ * Where a press happened: in the viewport, and on the page (scale 1); and
+ * whether it landed on the blank page.
+ */
+type Press = { client: Point; page: Point; blank: boolean };
+
+/** Where a touch began, and whether on the blank page. */
+type TouchStart = Point & { blank: boolean };
 
 /**
  * The draft of the regions: for each page with at least one token captured,
@@ -174,7 +186,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-  const touchStartRef = useRef<Point | null>(null);
+  const touchStartRef = useRef<TouchStart | null>(null);
   const [isLongPressActive, setIsLongPressActive] = useState(false);
 
   /** A viewport point on this page, unscaled. Null once unmounted. */
@@ -198,20 +210,39 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
     }
   }, []);
 
+  /**
+   * Whether `target` is the page itself: this layer or its canvas, not
+   * anything drawn over them (boxes, their chips and host content, links).
+   */
+  const isBlank = useCallback((target: EventTarget | null): boolean => {
+    const container = containerRef.current;
+    return (
+      container !== null &&
+      (target === container ||
+        (target instanceof HTMLCanvasElement &&
+          target.parentElement === container))
+    );
+  }, []);
+
+  /**
+   * A new selection begins, or the blank page was clicked: the pending
+   * selection ends and the annotation selection, if any, is cleared.
+   */
+  const clearSelections = useCallback(() => {
+    pendingActions.clear();
+    if (selectedIds.length > 0) setSelection([], USER);
+  }, [pendingActions, selectedIds, setSelection]);
+
   /** Ends the press without a selection. */
   const disarm = useCallback(() => {
     pressRef.current = null;
     setArmed(false);
   }, []);
 
-  /**
-   * The press becomes a drag from `origin` to `to`: a new selection begins,
-   * so the pending one ends and the annotation selection is cleared.
-   */
+  /** The press becomes a drag from `origin` to `to`: a new selection begins. */
   const begin = useCallback(
     (origin: Point, to: Point) => {
-      pendingActions.clear();
-      if (selectedIds.length > 0) setSelection([], USER);
+      clearSelections();
       controls.set({
         ...controls.get(),
         active: {
@@ -220,7 +251,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
         },
       });
     },
-    [pendingActions, selectedIds, setSelection, controls, pageIndex]
+    [clearSelections, controls, pageIndex]
   );
 
   /** The pointer is at a viewport point: start or extend the drag. */
@@ -254,16 +285,28 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
 
   /**
    * Finalises the gesture at a viewport point, whichever handler heard the
-   * release: with Shift the region is kept, otherwise the draft of every kept
-   * region completes. A press that never became a drag selects nothing.
+   * release (on `target`): with Shift the region is kept, otherwise the draft
+   * of every kept region completes. A press that never became a drag selects
+   * no text; pressed and released on the blank page, it clears the
+   * selections.
    */
   const finish = useCallback(
-    (clientX: number, clientY: number, shiftKey: boolean) => {
-      if (!pressRef.current) return;
+    (
+      clientX: number,
+      clientY: number,
+      shiftKey: boolean,
+      target: EventTarget | null
+    ) => {
+      const press = pressRef.current;
+      if (!press) return;
       disarm();
       const current = controls.get();
       const { active } = current;
-      if (!active || active.pageIndex !== pageIndex) return;
+      if (!active) {
+        if (press.blank && isBlank(target)) clearSelections();
+        return;
+      }
+      if (active.pageIndex !== pageIndex) return;
 
       const point = toPage(clientX, clientY);
       const bounds = point
@@ -281,7 +324,16 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
       const draft = buildDraft(regions, pages);
       if (draft) completeSelection(draft, { x: clientX, y: clientY });
     },
-    [disarm, controls, pageIndex, toPage, pages, completeSelection]
+    [
+      disarm,
+      controls,
+      isBlank,
+      clearSelections,
+      pageIndex,
+      toPage,
+      pages,
+      completeSelection,
+    ]
   );
 
   /** Escape: the gesture and the regions kept with Shift are dropped. */
@@ -301,7 +353,11 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
     if (isOnLink(event.target)) return;
     const page = toPage(event.clientX, event.clientY);
     if (!page) return;
-    pressRef.current = { client: { x: event.clientX, y: event.clientY }, page };
+    pressRef.current = {
+      client: { x: event.clientX, y: event.clientY },
+      page,
+      blank: isBlank(event.target),
+    };
     setArmed(true);
   };
 
@@ -309,7 +365,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
    * Handles the mouse up event to finalize the selection.
    */
   const handleMouseUp = (event: ReactMouseEvent<HTMLDivElement>) => {
-    finish(event.clientX, event.clientY, event.shiftKey);
+    finish(event.clientX, event.clientY, event.shiftKey, event.target);
   };
 
   /**
@@ -318,7 +374,11 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
   const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
     if (!selectable || pressRef.current || event.touches.length !== 1) return;
     const touch = event.touches[0];
-    const start = { x: touch.clientX, y: touch.clientY };
+    const start = {
+      x: touch.clientX,
+      y: touch.clientY,
+      blank: isBlank(event.target),
+    };
     touchStartRef.current = start;
     clearLongPressTimer();
     longPressTimerRef.current = setTimeout(() => {
@@ -327,7 +387,11 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
       if (!page) return;
       // Vibrate if supported (haptic feedback)
       navigator.vibrate?.(LONG_PRESS_VIBRATION_MS);
-      pressRef.current = { client: start, page };
+      pressRef.current = {
+        client: { x: start.x, y: start.y },
+        page,
+        blank: start.blank,
+      };
       setIsLongPressActive(true);
       begin(page, page);
     }, LONG_PRESS_MS);
@@ -364,15 +428,21 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
   };
 
   /**
-   * Handles touch end - finalize selection if active
+   * Handles touch end - finalize selection if active; a tap (released before
+   * the hold is over, without moving away) on the blank page is a blank click
    */
   const handleTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const tapStart =
+      longPressTimerRef.current !== null ? touchStartRef.current : null;
     clearLongPressTimer();
     touchStartRef.current = null;
-    if (!isLongPressActive) return;
+    if (!isLongPressActive) {
+      if (tapStart?.blank) clearSelections();
+      return;
+    }
     setIsLongPressActive(false);
     const touch = event.changedTouches[0];
-    if (touch) finish(touch.clientX, touch.clientY, false);
+    if (touch) finish(touch.clientX, touch.clientY, false, null);
     else disarm();
   };
 
@@ -383,7 +453,7 @@ export function SelectionLayer({ pageInfo, children }: SelectionLayerProps) {
     if (!armed) return;
 
     const handleDocMouseUp = (event: MouseEvent) => {
-      finish(event.clientX, event.clientY, event.shiftKey);
+      finish(event.clientX, event.clientY, event.shiftKey, event.target);
     };
     const handleDocMouseMove = (event: MouseEvent) => {
       moveTo(event.clientX, event.clientY);

@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 import { PdfHarness } from "./wrappers/PdfHarness";
 
 import type {
+  Annotation,
   AnnotationDraft,
   AnnotationLabel,
   MultipageAnnotationJson,
@@ -57,6 +58,8 @@ const FAR_PAGE = 15;
 /** The left margin of page 0 (page coordinates): no token is there. */
 const MARGIN_FROM = { x: 5, y: 300 };
 const MARGIN_TO = { x: 40, y: 360 };
+/** A point in that margin, for a click on the blank page. */
+const MARGIN_POINT = { x: 20, y: 330 };
 
 /** Console errors and warnings, and uncaught errors, of the current test. */
 const consoleProblems: string[] = [];
@@ -113,6 +116,13 @@ function scaledRect(
     width: (bounds.right - bounds.left) * zoom,
     height: (bounds.bottom - bounds.top) * zoom,
   };
+}
+
+/** The selection changes the user made, with their ids. */
+async function userSelectionChanges(page: Page): Promise<unknown[][]> {
+  return (await harnessEvents(page, "onSelectionChange"))
+    .filter(([, , info]) => (info as { source: string }).source === "user")
+    .map(([, ids, info]) => [ids, info]);
 }
 
 /** Scrolls page `pageIndex` to the top of the view at once and lets it settle. */
@@ -377,6 +387,62 @@ test("drag on blank margin produces no onTextSelect", async ({
   expect(await textSelections(page)).toEqual([]);
   await expect(pendingRegion(root, 0)).toHaveCount(0);
   await expect(dragRegions(root, 0)).toHaveCount(0);
+});
+
+test("click on a blank margin deselects a selected annotation and removes a pending region", async ({
+  mount,
+  page,
+}) => {
+  await mount(<PdfHarness annotationIds={["a-title"]} />);
+  await ready(page);
+  const root = annotatorRoot(page);
+  // "Certain information": clear of a-title.
+  await dragOverTokens(page, 0, 2, 3);
+  await expect(pendingRegion(root, 0)).toHaveCount(1);
+  await callHandle(page, "selectAnnotations", [["a-title"], { scroll: false }]);
+  const title = annotationBox(root, "a-title", 0);
+  await expect(title).toHaveAttribute("data-selected", "true");
+
+  const point = await pagePoint(page, 0, MARGIN_POINT);
+  await page.mouse.click(point.x, point.y);
+
+  await expect(title).toHaveAttribute("data-selected", "false");
+  await expect(pendingRegion(root, 0)).toHaveCount(0);
+  expect(await userSelectionChanges(page)).toEqual([[[], { source: "user" }]]);
+  expect(await callHandle(page, "getPendingSelection", [])).toBeNull();
+  // The click selected no text.
+  expect(await textSelections(page)).toHaveLength(1);
+});
+
+test("plain click on a-title leaves an existing selection of a-far unchanged and fires onAnnotationClick", async ({
+  mount,
+  page,
+}) => {
+  await mount(<PdfHarness annotationIds={["a-title", "a-far"]} />);
+  await ready(page);
+  const root = annotatorRoot(page);
+  await dragOverTokens(page, 0, 2, 3);
+  await expect(pendingRegion(root, 0)).toHaveCount(1);
+  await callHandle(page, "selectAnnotations", [["a-far"], { scroll: false }]);
+  const title = annotationBox(root, "a-title", 0);
+  await expect(title).toHaveCount(1);
+
+  await title.click();
+
+  await expect
+    .poll(async () =>
+      (await harnessEvents(page, "onAnnotationClick")).map(
+        ([, annotation]) => (annotation as Annotation).id
+      )
+    )
+    .toEqual(["a-title"]);
+  expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([
+    "a-far",
+  ]);
+  expect(await userSelectionChanges(page)).toEqual([]);
+  await expect(title).toHaveAttribute("data-selected", "false");
+  // Nor does it end the pending selection.
+  await expect(pendingRegion(root, 0)).toHaveCount(1);
 });
 
 test("usc fixture without pawls: dragging produces no onTextSelect and no error", async ({

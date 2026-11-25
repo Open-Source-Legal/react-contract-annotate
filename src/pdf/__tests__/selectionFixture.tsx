@@ -137,10 +137,33 @@ export function touchAt(point: Point) {
   return [{ clientX: point.x, clientY: point.y }];
 }
 
-/** A press and release on `layer` that moves no further than a click may. */
-export function click(layer: HTMLElement, at: Point): void {
-  const near = { x: at.x + CLICK_DRAG_TOLERANCE_PX / 2, y: at.y };
-  fireEvent.mouseDown(layer, { ...client(at, 1), buttons: 1 });
-  fireEvent.mouseMove(document, client(near, 1));
-  fireEvent.mouseUp(document, client(near, 1));
+/**
+ * A click on `target` at a page point (zoom 1): pressed and released on it,
+ * moving `moveBy` px in between (default 0; a click may move up to
+ * `CLICK_DRAG_TOLERANCE_PX`), then the click event. `releaseOn` releases
+ * somewhere else instead (no click event follows).
+ */
+export function click(
+  target: HTMLElement,
+  at: Point,
+  {
+    moveBy = 0,
+    releaseOn,
+  }: { moveBy?: number; releaseOn?: HTMLElement | Document } = {}
+): void {
+  if (moveBy > CLICK_DRAG_TOLERANCE_PX) {
+    throw new Error("a click moves no further than CLICK_DRAG_TOLERANCE_PX");
+  }
+  const near = client({ x: at.x + moveBy, y: at.y }, 1);
+  fireEvent.mouseDown(target, { ...client(at, 1), buttons: 1 });
+  fireEvent.mouseMove(document, near);
+  fireEvent.mouseUp(releaseOn ?? target, near);
+  if (!releaseOn) fireEvent.click(target, near);
+}
+
+/** The canvas a layer wraps: the blank page. */
+export function canvasOf(layer: HTMLElement): HTMLElement {
+  const canvas = layer.querySelector<HTMLElement>("canvas");
+  if (!canvas) throw new Error("the layer wraps no canvas");
+  return canvas;
 }
