@@ -8,8 +8,12 @@
  * `initialize` resolves at once; each `convertDocxToHtml` call is recorded
  * with a promise the test settles; projection appends a marker per entry to
  * the HTML (`<span data-annotation-id=… data-label-id=…>`), so what was
- * projected can be read back from the DOM. `PaginatedDocument` renders the
- * HTML inside a `.page-container` and reports pagination on mount and on
+ * projected can be read back from the DOM; like docxodus 12.4.1 it adds a
+ * stylesheet of the label records (ids unescaped) and it draws
+ * only one of two overlapping spans (the one starting first; the earlier
+ * entry on a tie). `findTextOccurrences` stops at `maxResults` (default 100),
+ * as docxodus' does. `PaginatedDocument` renders the HTML inside its page
+ * container (`<cssPrefix>container`) and reports pagination on mount and on
  * every new `html`.
  */
 import { useEffect } from "react";
@@ -44,37 +48,67 @@ export const fakeDocxodus = {
   projectAnnotationsOntoHtml: vi.fn(
     (html: string, set: ExternalAnnotationSet) =>
       Promise.resolve(
-        html +
-          set.labelledText
-            .map(
-              (entry) =>
-                `<span data-annotation-id="${entry.id}" data-label-id="${entry.annotationLabel}">${entry.rawText}</span>`
-            )
-            .join("")
+        labelStylesheet(set) + html + drawnEntries(set).map(marker).join("")
       )
   ),
-  generateAnnotationCss: vi.fn(() => Promise.resolve("")),
   reset() {
     fakeDocxodus.conversions = [];
     fakeDocxodus.initialize.mockReset();
     fakeDocxodus.initialize.mockImplementation(() => Promise.resolve());
     fakeDocxodus.convertDocxToHtml.mockClear();
     fakeDocxodus.projectAnnotationsOntoHtml.mockClear();
-    fakeDocxodus.generateAnnotationCss.mockClear();
   },
 };
+
+type Entry = ExternalAnnotationSet["labelledText"][number];
+type Span = { start: number; end: number };
+
+function spanOf(entry: Entry): Span {
+  return entry.annotationJson as Span;
+}
+
+/** The entries docxodus would draw: none overlapping one drawn before. */
+function drawnEntries(set: ExternalAnnotationSet): Entry[] {
+  const byStart = set.labelledText
+    .map((entry, index) => ({ entry, index }))
+    .sort(
+      (a, b) =>
+        spanOf(a.entry).start - spanOf(b.entry).start || a.index - b.index
+    );
+  const drawn: Entry[] = [];
+  for (const { entry } of byStart) {
+    const span = spanOf(entry);
+    const free = drawn.every((other) => {
+      const taken = spanOf(other);
+      return span.end <= taken.start || taken.end <= span.start;
+    });
+    if (free) drawn.push(entry);
+  }
+  return drawn;
+}
+
+/** The stylesheet docxodus adds to projected HTML: label ids unescaped. */
+function labelStylesheet(set: ExternalAnnotationSet): string {
+  const rules = Object.values(set.textLabels).map(
+    (label) => `.oc-annot-label-${label.id} { --annot-color: ${label.color}; }`
+  );
+  return `<style>${rules.join("\n")}</style>`;
+}
+
+function marker(entry: Entry): string {
+  return `<span data-annotation-id="${entry.id}" data-label-id="${entry.annotationLabel}">${entry.rawText}</span>`;
+}
 
 export function docxodusModule() {
   return {
     initialize: fakeDocxodus.initialize,
     convertDocxToHtml: fakeDocxodus.convertDocxToHtml,
     projectAnnotationsOntoHtml: fakeDocxodus.projectAnnotationsOntoHtml,
-    generateAnnotationCss: fakeDocxodus.generateAnnotationCss,
-    findTextOccurrences: (text: string, query: string) => {
+    findTextOccurrences: (text: string, query: string, maxResults = 100) => {
       const found: { start: number; end: number }[] = [];
       for (
         let at = text.indexOf(query);
-        at >= 0;
+        at >= 0 && found.length < maxResults;
         at = text.indexOf(query, at + 1)
       ) {
         found.push({ start: at, end: at + query.length });
@@ -88,9 +122,11 @@ export function docxodusModule() {
 
 function FakePaginatedDocument({
   html,
+  cssPrefix = "page-",
   onPaginationComplete,
 }: {
   html: string;
+  cssPrefix?: string;
   onPaginationComplete?: () => void;
 }) {
   useEffect(() => {
@@ -98,7 +134,7 @@ function FakePaginatedDocument({
   }, [html, onPaginationComplete]);
   return (
     <div
-      className="page-container"
+      className={`${cssPrefix}container`}
       data-fake-paginated=""
       dangerouslySetInnerHTML={{ __html: html }}
     />

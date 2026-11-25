@@ -9,8 +9,20 @@
  * `getVisiblePageRange()` are null and `scrollToPage()` is false. Zoom is the
  * view's scale factor, and fit-to-width is 1. `getText()` is the `text` prop
  * and `findText()` searches it.
+ *
+ * A target is drawable once the document is shown, is a span within the
+ * text, and was not left undrawn by the last projection laid out (docxodus
+ * draws one of two overlapping spans; see `projection.ts`). An annotation the
+ * display filters hide counts as drawable, so `scrollToAnnotation(id,
+ * { select: true })` can reveal it.
  */
-import { forwardRef, useEffect, useLayoutEffect, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ForwardedRef, ReactElement, RefAttributes } from "react";
 
 import {
@@ -31,9 +43,11 @@ import type {
   ScrollTarget,
 } from "../core/index";
 import { findSpanMatches } from "./docxOffsetUtils";
+import { createDocxScope } from "./isolation";
 import { useDocxDocument } from "./loader";
 import type { DocxSource } from "./loader";
 import { isDrawableSpan } from "./projection";
+import type { TargetIds } from "./projection";
 import { DocxView } from "./DocxView";
 
 function DocxAnnotatorWithRef<M>(
@@ -142,8 +156,12 @@ function DocxFormat({
   wasmBaseUrl,
   hasSelectedRelations,
 }: DocxFormatProps) {
-  const docx = useDocxDocument(source, wasmBaseUrl);
+  // Random, so it is unique across React roots too (unlike `useId`).
+  const [scope] = useState(createDocxScope);
+  const docx = useDocxDocument(source, wasmBaseUrl, scope);
   const ready = useDocumentStatus().state === "ready";
+  /** What the last projection laid out did not draw (`DocxView`). */
+  const suppressedRef = useRef<TargetIds | null>(null);
   const annotations = useAllAnnotations();
   const highlights = useHighlights();
   useUnsupportedWarnings(hasSelectedRelations);
@@ -163,9 +181,6 @@ function DocxFormat({
       findSpanMatches(latest.current.text, query, opts),
     scrollToPage: () => false,
     resolveFitWidth: () => 1,
-    // Drawable once the document is shown (whatever the display filters
-    // say, so `scrollToAnnotation(id, { select: true })` can reveal a hidden
-    // annotation).
     canDraw: (target) =>
       latest.current.ready &&
       drawable(
@@ -173,16 +188,25 @@ function DocxFormat({
         latest.current.annotations,
         latest.current.highlights,
         latest.current.text
-      ),
+      ) &&
+      !suppressedRef.current?.[target.kind].has(target.id),
   });
 
   // What is drawable depends on the text and the highlights, and on the
   // document being shown: tell the shell when any changes, after the refs
-  // above have them. A change of the annotations the shell notices itself.
+  // above have them. A change of the annotations the shell notices itself;
+  // `DocxView` tells it after each layout.
   const notifyDrawabilityChanged = useNotifyDrawabilityChanged();
   useLayoutEffect(() => {
     notifyDrawabilityChanged();
   }, [text, highlights, ready, notifyDrawabilityChanged]);
 
-  return <DocxView docx={docx} text={text} />;
+  return (
+    <DocxView
+      docx={docx}
+      text={text}
+      scope={scope}
+      suppressedRef={suppressedRef}
+    />
+  );
 }

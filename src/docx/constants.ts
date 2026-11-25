@@ -14,7 +14,11 @@ export const CSS_CLASS_PREFIX = "oc-annot-";
 /** Class of annotation label elements injected by the WASM renderer. */
 export const ANNOTATION_LABEL_CLASS = "oc-annot-label";
 
-/** Class of the page numbers `PaginatedDocument` draws (not document text). */
+/**
+ * Class of the page numbers `PaginatedDocument` draws (not document text)
+ * with its default prefix; each annotator's own is `pageClass(scope,
+ * "number")`.
+ */
 export const PAGE_NUMBER_CLASS = "page-number";
 
 /** Gap (px) `PaginatedDocument` leaves between pages. */
@@ -31,6 +35,13 @@ export const SELECTED_BACKGROUND = "rgba(59, 130, 246, 0.15)";
 export const HOVER_OUTLINE_COLOR = "#cbd5e1";
 /** Opacity (%) of an annotation's label colour behind its text (0.15). */
 export const LABEL_BACKGROUND_PERCENT = 15;
+/**
+ * The base rule of a projected span, as docxodus' `generateAnnotationCss`
+ * (12.4.1) writes it: its colour mixed in at this share (%), and the colour
+ * used when the span has none.
+ */
+export const SPAN_BACKGROUND_PERCENT = 30;
+export const ANNOTATION_FALLBACK_COLOR = "#FFEB3B";
 
 /**
  * The label chip (a `::before` on an annotation's first span): the fallbacks
@@ -60,11 +71,3 @@ export const PENDING_ENTRY_ID = "__pending__";
  * OpenContracts' `SelectionLayer` literal).
  */
 export const PENDING_COLOR = "#0066cc";
-
-/**
- * Class of the element holding the laid-out pages (`PaginatedDocument`'s
- * default `cssPrefix`, `page-`). `PaginatedDocument` keeps an invisible copy
- * of the document in its staging element, so everything that looks for
- * annotations or offsets looks inside this one.
- */
-export const PAGE_CONTAINER_CLASS = "page-container";

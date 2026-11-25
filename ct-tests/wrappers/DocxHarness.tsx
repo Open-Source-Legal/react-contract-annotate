@@ -11,8 +11,11 @@
  *   `activeHighlightId` props (from `props`, else 1 / [] / null) and never
  *   applies a change callback itself: a test changes them with
  *   `component.update(...)`.
+ * - `fixture` picks the document: `"test"` (default; `test.docx` with its
+ *   annotations) or `"landscape"` (`landscape.docx`, a different page size
+ *   and style sheet, without annotations).
  * - `annotationIds` picks fixture annotations by id (default: all of them,
- *   `d-bad-span` included).
+ *   `d-bad-span` included); `extraAnnotations` are passed after them.
  * - `props` are passed through last; callbacks in it are called after the
  *   harness has logged the call.
  * - `omitCallbacks` names callback props the harness does not pass at all.
@@ -44,7 +47,9 @@ import type { CallbackName } from "./harnessShared";
 
 export interface DocxHarnessProps {
   mode?: "uncontrolled" | "controlled";
+  fixture?: keyof typeof FIXTURES;
   annotationIds?: string[];
+  extraAnnotations?: Annotation[];
   props?: Partial<DocxAnnotatorProps>;
   omitCallbacks?: CallbackName[];
   selectionMenu?: boolean;
@@ -57,11 +62,20 @@ const SIZE: CSSProperties = { width: 900, height: 700, flex: "none" };
 const CONTROLLED_DEFAULT_ZOOM = 1;
 const NO_IDS: string[] = [];
 
-const FIXTURE = {
-  docx: "/fixtures/docx/test.docx",
-  text: "/fixtures/docx/text.txt",
-  annotations: "/fixtures/docx/annotations.json",
+const FIXTURES = {
+  test: {
+    docx: "/fixtures/docx/test.docx",
+    text: "/fixtures/docx/text.txt",
+    annotations: "/fixtures/docx/annotations.json",
+  },
+  landscape: {
+    docx: "/fixtures/docx/landscape.docx",
+    text: "/fixtures/docx/landscape.txt",
+    annotations: null,
+  },
 } as const;
+
+const NO_ANNOTATIONS: Annotation[] = [];
 
 type FixtureData = { text: string; annotations: Annotation[] };
 
@@ -73,7 +87,9 @@ async function fetchOk(url: string): Promise<Response> {
 
 export function DocxHarness({
   mode = "uncontrolled",
+  fixture = "test",
   annotationIds,
+  extraAnnotations = NO_ANNOTATIONS,
   props = {},
   omitCallbacks = [],
   selectionMenu = false,
@@ -87,29 +103,33 @@ export function DocxHarness({
   const [log] = useState(() => eventLog(name));
   const setHandle = useHandleSetter(name);
 
+  const files = FIXTURES[fixture];
   useEffect(() => {
     let live = true;
     void Promise.all([
-      fetchOk(FIXTURE.text).then((r) => r.text()),
-      fetchOk(FIXTURE.annotations).then(
-        (r) => r.json() as Promise<Annotation[]>
-      ),
+      fetchOk(files.text).then((r) => r.text()),
+      files.annotations === null
+        ? NO_ANNOTATIONS
+        : fetchOk(files.annotations).then(
+            (r) => r.json() as Promise<Annotation[]>
+          ),
     ]).then(([text, annotations]) => {
       if (live) setData({ text, annotations });
     });
     return () => {
       live = false;
     };
-  }, []);
+  }, [files]);
 
   const annotations = useMemo(
     () => [
       ...(data?.annotations ?? []).filter(
         (a) => !annotationIds || annotationIds.includes(a.id)
       ),
+      ...extraAnnotations,
       ...created,
     ],
-    [data, annotationIds, created]
+    [data, annotationIds, extraAnnotations, created]
   );
 
   const ownCreate = props.onCreateAnnotation;
@@ -141,7 +161,7 @@ export function DocxHarness({
     <div data-harness={name} style={SIZE}>
       <DocxAnnotator
         ref={setHandle}
-        source={{ url: FIXTURE.docx }}
+        source={{ url: files.docx }}
         text={data.text}
         wasmBaseUrl={DOCXODUS_WASM_URL}
         annotations={annotations}

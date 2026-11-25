@@ -23,8 +23,9 @@
  * Changed from OpenContracts: the runtime is initialised from the host's
  * `wasmBaseUrl` (no `import.meta.env`), in parallel with fetching the bytes;
  * failures are reported through the document status instead of a message in
- * the view; and the ids the paginated HTML gives its staging and page
- * containers (which would collide between two annotators) are removed.
+ * the view; and the document is made the annotator's own (`isolation.ts`):
+ * converted with the scope's class prefixes, its stylesheet taken out and
+ * scoped, its ids prefixed.
  */
 import DOMPurify from "dompurify";
 import type { Config } from "dompurify";
@@ -33,12 +34,17 @@ import { useEffect, useState } from "react";
 
 import { useSetDocumentStatus } from "../core/index";
 import type { DocxAnnotatorProps } from "../core/index";
+import { isolateDocument } from "./isolation";
+import type { DocxScope } from "./isolation";
 
 export type DocxSource = DocxAnnotatorProps["source"];
 
-/** The converted HTML of one load; a new object for every load. */
+/** The converted document of one load; a new object for every load. */
 export interface DocxDocument {
+  /** Its HTML, without its stylesheet. */
   readonly html: string;
+  /** Its stylesheet, scoped to the annotator. */
+  readonly css: string;
 }
 
 /**
@@ -57,15 +63,27 @@ const SANITIZE_CONFIG: Config = {
   ADD_TAGS: ["style"],
 };
 
-/**
- * The ids of `PaginatedDocument`'s staging and page containers. It finds
- * them by their classes too, and two annotators on a page would repeat them.
- */
-const PAGINATION_IDS = /\sid="pagination-(?:staging|container)"/g;
-
-/** docxodus HTML, sanitised (see `SANITIZE_CONFIG`) and without fixed ids. */
+/** Converted docxodus HTML, sanitised (see `SANITIZE_CONFIG`). */
 export function sanitizeDocxHtml(html: string): string {
-  return DOMPurify.sanitize(html, SANITIZE_CONFIG).replace(PAGINATION_IDS, "");
+  return DOMPurify.sanitize(html, SANITIZE_CONFIG);
+}
+
+/**
+ * For projected HTML: `SANITIZE_CONFIG` without `<style>`. Projection adds a
+ * stylesheet of its own, built from the label records with the label ids
+ * unescaped (`.oc-annot-label-<id> { … }`), which would apply to the whole
+ * page; nothing needs it (the document's stylesheet was taken out and scoped
+ * before projection, and `styles.ts` writes the annotation rules).
+ */
+const SANITIZE_PROJECTED_CONFIG: Config = {
+  ...SANITIZE_CONFIG,
+  ADD_TAGS: [],
+  FORBID_TAGS: ["style"],
+};
+
+/** Projected docxodus HTML, sanitised, without any stylesheet. */
+export function sanitizeProjectedHtml(html: string): string {
+  return DOMPurify.sanitize(html, SANITIZE_PROJECTED_CONFIG);
 }
 
 function toError(reason: unknown): Error {
@@ -121,13 +139,15 @@ type Loaded = DocxDocument & {
 };
 
 /**
- * Loads `source`, reports `loading` and failures through the shell's
- * document status, and returns the current document; null until it has
- * loaded.
+ * Loads `source` as the document of the annotator `scope` belongs to (one
+ * scope for the life of the component), reports `loading` and failures
+ * through the shell's document status, and returns the current document;
+ * null until it has loaded.
  */
 export function useDocxDocument(
   source: DocxSource,
-  wasmBaseUrl: string
+  wasmBaseUrl: string,
+  scope: DocxScope
 ): DocxDocument | null {
   const setStatus = useSetDocumentStatus();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -155,11 +175,14 @@ export function useDocxDocument(
           ? null
           : convertDocxToHtml(docx, {
               paginationMode: PaginationMode.Paginated,
+              cssPrefix: scope.documentPrefix,
+              paginationCssClassPrefix: scope.pagePrefix,
             })
       )
       .then((html) => {
         if (cancelled || html === null) return;
-        setLoaded({ html: sanitizeDocxHtml(html), url, data, wasmBaseUrl });
+        const isolated = isolateDocument(sanitizeDocxHtml(html), scope);
+        setLoaded({ ...isolated, url, data, wasmBaseUrl });
       })
       .catch((reason: unknown) => {
         if (cancelled) return;
@@ -170,7 +193,7 @@ export function useDocxDocument(
       cancelled = true;
       abort.abort();
     };
-  }, [setStatus, url, data, wasmBaseUrl]);
+  }, [setStatus, url, data, wasmBaseUrl, scope]);
 
   return loaded !== null &&
     loaded.url === url &&

@@ -62,7 +62,6 @@ export type {
   TokenAnnotation,
 } from "./normalize";
 export { highlightColor, highlightPages, isSpanHighlight } from "./highlights";
-export { TEXT_BLOCK_HIGHLIGHT_COLOR } from "./constants";
 
 export {
   doOverlap,

@@ -38,6 +38,9 @@ function span(
   return { id, annotationLabel: LABEL, json: { start, end }, ...extra };
 }
 
+/** The laid-out pages: the annotator's own page container. */
+const PAGES = '[data-rca-docx] [class$="-page-container"]';
+
 const D1 = span("d-1", 0, 11);
 const D2 = span("d-2", 84, 100);
 const STRUCTURAL = span("d-3", 13, 17, { structural: true });
@@ -116,9 +119,7 @@ test("onDocumentLoad fires once the document is laid out, with pageCount null an
   expect(onDocumentLoad.mock.calls).toEqual([
     [{ pageCount: null, text: TEXT }],
   ]);
-  expect(
-    container.querySelector("[data-rca-docx] .page-container")
-  ).not.toBeNull();
+  expect(container.querySelector(PAGES)).not.toBeNull();
 });
 
 test("the handle: unpaginated, fit-width zoom 1, text and literal search", async () => {
@@ -258,7 +259,7 @@ test("a load failure calls onError once and nothing is rendered", async () => {
     await flushPromises();
   });
   expect(onError.mock.calls).toEqual([[failure]]);
-  expect(container.querySelector(".page-container")).toBeNull();
+  expect(container.querySelector(PAGES)).toBeNull();
 });
 
 test("hovering an annotation reports it with the host's object; leaving reports null", async () => {
@@ -271,7 +272,7 @@ test("hovering an annotation reports it with the host's object; leaving reports 
   await load();
   const part = (id: string) =>
     container.querySelector(
-      `.page-container [data-annotation-id="${id}"]`
+      `${PAGES} [data-annotation-id="${id}"]`
     ) as HTMLElement;
 
   fireEvent.mouseOver(part("d-1"));
@@ -283,4 +284,79 @@ test("hovering an annotation reports it with the host's object; leaving reports 
   );
 
   expect(onAnnotationHover.mock.calls).toEqual([[D1], [null], [D2], [null]]);
+});
+
+/** The selector of each style rule a browser parses out of `css`, at any depth. */
+function parsedSelectors(css: string): string[] {
+  const style = document.createElement("style");
+  style.media = "not all"; // parsed, never applied
+  style.textContent = css;
+  document.head.append(style);
+  try {
+    const selectors: string[] = [];
+    const walk = (rules: CSSRuleList) => {
+      for (const rule of Array.from(rules)) {
+        if ("selectorText" in rule) selectors.push(String(rule.selectorText));
+        if ("cssRules" in rule) walk(rule.cssRules as CSSRuleList);
+      }
+    };
+    walk(style.sheet?.cssRules ?? ([] as unknown as CSSRuleList));
+    return selectors;
+  } finally {
+    style.remove();
+  }
+}
+
+test("every stylesheet the annotator inserts is scoped to it, whatever the label ids and the document's CSS", async () => {
+  const hostile: AnnotationLabel = {
+    id: "x{}body{display:none}.y",
+    text: "Hostile",
+    color: "red;}body{display:none",
+  };
+  const { container } = setup({
+    annotations: [span("d-1", 0, 11, { annotationLabel: hostile }), D2],
+    selectedAnnotationIds: ["d-1"],
+    scrollOnSelect: false,
+  });
+  await load(
+    "<style>body { margin: 0 } span { white-space: pre-wrap } @page { margin: 0 }" +
+      " @media print { body { margin: 0 } }</style><p>doc</p>"
+  );
+
+  const docx = container.querySelector("[data-rca-docx]") as HTMLElement;
+  const scope = `[data-rca-docx="${docx.getAttribute("data-rca-docx")}"]`;
+  const sheets = Array.from(container.querySelectorAll("style"));
+  // The document's own stylesheet and the format's.
+  expect(sheets).toHaveLength(2);
+  for (const sheet of sheets) {
+    const selectors = parsedSelectors(sheet.textContent ?? "");
+    expect(selectors.length).toBeGreaterThan(0);
+    for (const selector of selectors) {
+      expect(selector.startsWith(scope)).toBe(true);
+      expect(selector).not.toMatch(/(^|[\s,])body\b/);
+    }
+  }
+  expect(fakeDocxodus.projectAnnotationsOntoHtml).toHaveBeenCalled();
+});
+
+test("an annotation the engine did not draw resolves scrollToAnnotation false at once", async () => {
+  // d-over starts after d-1 and overlaps it: docxodus draws only d-1.
+  const OVER = span("d-over", 5, 20);
+  const { handle, container } = setup({ annotations: [D1, OVER] });
+  await load();
+  expect(
+    container.querySelector(`${PAGES} [data-annotation-id="d-over"]`)
+  ).toBeNull();
+
+  const timedOut = new Promise((resolve) =>
+    setTimeout(resolve, 200, "timeout")
+  );
+  await expect(
+    Promise.race([
+      handle().scrollToAnnotation("d-over", { select: true }),
+      timedOut,
+    ])
+  ).resolves.toBe(false);
+  // Not drawable, so not selected either.
+  expect(handle().getSelectedAnnotationIds()).toEqual([]);
 });

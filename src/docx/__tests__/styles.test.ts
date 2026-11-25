@@ -1,6 +1,16 @@
 import type { AnnotationLabel, Highlight } from "../../core/index";
-import { buildDocxCss, cssString } from "../styles";
+import { cssString } from "../cssString";
+import type { DocxScope } from "../isolation";
+import { buildDocxCss } from "../styles";
 import type { DocxCssInput } from "../styles";
+
+const SCOPE: DocxScope = {
+  id: "s1",
+  selector: '[data-rca-docx="s1"]',
+  idPrefix: "rca-s1-",
+  documentPrefix: "rca-s1-docx-",
+  pagePrefix: "rca-s1-page-",
+};
 
 const CLAUSE: AnnotationLabel = {
   id: "label-1",
@@ -10,7 +20,7 @@ const CLAUSE: AnnotationLabel = {
 
 function css(input: Partial<DocxCssInput> = {}): string {
   return buildDocxCss({
-    scope: "s1",
+    scope: SCOPE,
     labels: [CLAUSE],
     selectedIds: [],
     highlights: [],
@@ -130,4 +140,15 @@ test("each span highlight gets its own colour; other kinds are ignored", () => {
   });
   expect(selectorsWith(sheet, "--annot-color: #16a34a")).toHaveLength(1);
   expect(sheet).not.toContain("#dc2626");
+});
+
+test("projected spans get the base highlight rule here, scoped; the scope's pages are start-aligned when they overflow", () => {
+  const sheet = css();
+  expect(selectorsWith(sheet, "padding: 0.1em 0")).toEqual([
+    '[data-rca-docx="s1"] .oc-annot-highlight',
+  ]);
+  expect(sheet).toContain("var(--annot-color, #FFEB3B) 30%");
+  expect(selectorsWith(sheet, "align-items: safe center")).toEqual([
+    '[data-rca-docx="s1"] .rca-s1-page-container',
+  ]);
 });

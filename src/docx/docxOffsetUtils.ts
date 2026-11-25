@@ -6,7 +6,8 @@
  * literal search `findText` answers with.
  *
  * Changed from OpenContracts: the tree walker comes from the container's own
- * document.
+ * document, and the page numbers' class is a parameter (each annotator's
+ * pagination classes are its own; the default is `PaginatedDocument`'s).
  */
 import type { Highlight } from "../core/index";
 import { ANNOTATION_LABEL_CLASS, PAGE_NUMBER_CLASS } from "./constants";
@@ -27,7 +28,8 @@ export function getGlobalOffsetFromDomPosition(
   container: HTMLElement,
   node: Node | null,
   localOffset: number,
-  cssClassPrefix: string = ANNOTATION_LABEL_CLASS
+  cssClassPrefix: string = ANNOTATION_LABEL_CLASS,
+  pageNumberClass: string = PAGE_NUMBER_CLASS
 ): number | null {
   if (!node) return null;
 
@@ -50,7 +52,7 @@ export function getGlobalOffsetFromDomPosition(
 
   // Classes whose text content is NOT part of docText and should be skipped.
   // Includes annotation labels (WASM renderer) and page numbers (PaginatedDocument).
-  const SKIP_CLASSES = [cssClassPrefix, PAGE_NUMBER_CLASS];
+  const SKIP_CLASSES = [cssClassPrefix, pageNumberClass];
   // Tag names whose text content is NOT part of docText (e.g. <style>, <title>).
   const SKIP_TAGS = new Set(["STYLE", "TITLE", "SCRIPT"]);
 

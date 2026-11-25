@@ -8,6 +8,7 @@ import type {
   DocumentStatus,
   DocxAnnotatorProps,
 } from "../../core/index";
+import type { DocxScope } from "../isolation";
 import { useDocxDocument } from "../loader";
 import type { DocxDocument } from "../loader";
 import { deferred, fakeDocxodus, flushPromises } from "./docxodusFake";
@@ -45,6 +46,14 @@ afterEach(() => {
 
 type Log = { statuses: DocumentStatus[]; documents: (DocxDocument | null)[] };
 
+const SCOPE: DocxScope = {
+  id: "s1",
+  selector: '[data-rca-docx="s1"]',
+  idPrefix: "rca-s1-",
+  documentPrefix: "rca-s1-docx-",
+  pagePrefix: "rca-s1-page-",
+};
+
 function Probe({
   source,
   wasmBaseUrl,
@@ -54,7 +63,7 @@ function Probe({
   wasmBaseUrl: string;
   log: Log;
 }) {
-  const document = useDocxDocument(source, wasmBaseUrl);
+  const document = useDocxDocument(source, wasmBaseUrl, SCOPE);
   const status = useDocumentStatus();
   // Every committed document, so a stale one shown for a single commit is
   // seen too.
@@ -123,7 +132,7 @@ const lastHtml = (log: Log) => log.documents.at(-1)?.html ?? null;
 const shownHtml = (log: Log) =>
   log.documents.flatMap((d) => (d === null ? [] : [d.html]));
 
-test("a url source is fetched, the runtime initialised from wasmBaseUrl, and the html sanitised", async () => {
+test("a url source is fetched, the runtime initialised from wasmBaseUrl, and the html sanitised and made the annotator's own", async () => {
   const { log } = setup({ url: "/a.docx" });
   expect(fetches.map((f) => f.url)).toEqual(["/a.docx"]);
   expect(fakeDocxodus.initialize).toHaveBeenCalledWith(WASM);
@@ -134,17 +143,26 @@ test("a url source is fetched, the runtime initialised from wasmBaseUrl, and the
   expect(Array.from(fakeDocxodus.conversions[0].bytes)).toEqual(
     Array.from(BYTES)
   );
+  // The document's and the pagination's classes are the annotator's own.
   expect(fakeDocxodus.convertDocxToHtml.mock.calls[0][1]).toEqual({
     paginationMode: 1,
+    cssPrefix: "rca-s1-docx-",
+    paginationCssClassPrefix: "rca-s1-page-",
   });
 
   await finishConversion(
     0,
-    '<div id="pagination-staging" class="page-staging"><p onclick="x()">Hi</p><script>bad()</script></div>' +
-      '<div id="pagination-container" class="page-container"></div>'
+    "<style>body { margin: 0 } .rca-s1-page-box { color: red }</style>" +
+      '<div id="pagination-staging" class="rca-s1-page-staging"><p id="b1" onclick="x()">Hi</p><script>bad()</script></div>' +
+      '<div id="pagination-container" class="rca-s1-page-container"></div>'
   );
   expect(lastHtml(log)).toBe(
-    '<div class="page-staging"><p>Hi</p></div><div class="page-container"></div>'
+    '<div class="rca-s1-page-staging"><p id="rca-s1-b1">Hi</p></div>' +
+      '<div class="rca-s1-page-container"></div>'
+  );
+  expect(log.documents.at(-1)?.css).toBe(
+    '[data-rca-docx="s1"] { margin: 0 }\n' +
+      '[data-rca-docx="s1"] .rca-s1-page-box { color: red }'
   );
   // `ready` is the view's to report, once the document is laid out.
   expect(states(log)).toEqual(["loading"]);

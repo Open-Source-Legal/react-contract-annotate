@@ -1,3 +1,4 @@
+import { highlightColor } from "../../core/index";
 import type {
   Annotation,
   AnnotationLabel,
@@ -6,7 +7,6 @@ import type {
   SpanAnnotation,
   TokenAnnotation,
 } from "../../core/index";
-import { TEXT_BLOCK_HIGHLIGHT_COLOR } from "../../core/index";
 import {
   ACTIVE_HIGHLIGHT_LABEL_ID,
   HIGHLIGHT_LABEL_ID,
@@ -17,6 +17,7 @@ import {
 import {
   buildProjectionSet,
   isDrawableSpan,
+  suppressedTargets,
   withoutIndentation,
 } from "../projection";
 
@@ -38,7 +39,8 @@ function span(
   {
     label = CLAUSE,
     structural = false,
-  }: { label?: AnnotationLabel; structural?: boolean } = {}
+    rawText = "",
+  }: { label?: AnnotationLabel; structural?: boolean; rawText?: string } = {}
 ): SpanAnnotation {
   const source: Annotation = {
     id,
@@ -50,7 +52,7 @@ function span(
     kind: "span",
     id,
     annotationLabel: label,
-    rawText: "stale text the host kept",
+    rawText,
     structural,
     approved: false,
     rejected: false,
@@ -115,8 +117,7 @@ test("span annotations become labelledText entries with start/end/text", () => {
     {
       id: "d-1",
       annotationLabel: "label-1",
-      // The text the offsets name, not the host's (possibly stale) rawText:
-      // docxodus anchors the annotation by it.
+      // Without a rawText of its own, anchored by the text its offsets name.
       rawText: "Hello World",
       page: 0,
       annotationJson: { start: 0, end: 11, text: "Hello World" },
@@ -183,13 +184,34 @@ test("span highlights become synthetic entries; the active one uses the selected
       structural: false,
     },
   ]);
+  // A synthetic label takes its first highlight's colour (here the default);
+  // each highlight's own colour is the generated CSS's.
   expect(set.textLabels[HIGHLIGHT_LABEL_ID]).toMatchObject({
     text: "",
-    color: TEXT_BLOCK_HIGHLIGHT_COLOR,
+    color: highlightColor(spanHighlight("h-1", 13, 17)),
   });
   expect(set.textLabels[ACTIVE_HIGHLIGHT_LABEL_ID]).toMatchObject({
     text: "",
-    color: TEXT_BLOCK_HIGHLIGHT_COLOR,
+    color: highlightColor(spanHighlight("h-2", 30, 34)),
+  });
+});
+
+test("the anchor text is the host's rawText when it has one", () => {
+  const set = project({
+    annotations: [span("d-1", 0, 11, { rawText: "Hello World!" })],
+  });
+  // As in OpenContracts: docxodus validates and anchors by this text.
+  expect(set.labelledText[0]).toMatchObject({
+    rawText: "Hello World!",
+    annotationJson: { start: 0, end: 11, text: "Hello World!" },
+  });
+});
+
+test("without a rawText the anchor text is the slice its offsets name", () => {
+  const set = project({ annotations: [span("d-1", 0, 11, { rawText: "" })] });
+  expect(set.labelledText[0]).toMatchObject({
+    rawText: "Hello World",
+    annotationJson: { start: 0, end: 11, text: "Hello World" },
   });
 });
 
@@ -295,4 +317,74 @@ test("withoutIndentation drops only the whitespace docxodus indents projected HT
   // Text, and spaces between elements on one line, are the document's.
   const text = "<span>a</span> <span>b</span><span>line\n  two</span>";
   expect(withoutIndentation(text)).toBe(text);
+});
+
+describe("overlap rule: structural spans give way", () => {
+  // The first paragraph, [0, 56), as a structural annotation.
+  const paragraph = () => span("s-para", 0, 56, { structural: true });
+
+  test("to an annotation sharing its start", () => {
+    const set = project({ annotations: [paragraph(), span("d-1", 0, 11)] });
+    expect(ids(set)).toEqual(["d-1"]);
+  });
+
+  test("to a highlight sharing its end", () => {
+    const set = project({
+      annotations: [paragraph()],
+      highlights: [spanHighlight("h-1", 44, 56)],
+    });
+    expect(ids(set)).toEqual(["h-1"]);
+  });
+
+  test("to the pending selection overlapping it partly", () => {
+    const set = project({
+      annotations: [span("s-part", 10, 30, { structural: true })],
+      pending: { start: 20, end: 40 },
+    });
+    expect(ids(set)).toEqual([PENDING_ENTRY_ID]);
+  });
+
+  test("to an annotation strictly inside it: docxodus draws only one of two nested spans", () => {
+    const set = project({ annotations: [paragraph(), span("d-in", 23, 29)] });
+    expect(ids(set)).toEqual(["d-in"]);
+  });
+
+  test("not to spans it only touches, nor to other structural spans", () => {
+    const set = project({
+      annotations: [
+        span("s-1", 0, 11, { structural: true }),
+        span("d-after", 11, 20),
+        span("s-2", 5, 30, { structural: true }),
+      ],
+    });
+    // s-2 overlaps d-after and gives way; s-1 only touches it and stays,
+    // and s-1 / s-2 overlapping each other is the engine's to decide.
+    expect(ids(set)).toEqual(["s-1", "d-after"]);
+  });
+
+  test("overlapping non-structural spans are all projected: the engine decides", () => {
+    const set = project({
+      annotations: [span("d-1", 0, 11), span("d-over", 5, 20)],
+      highlights: [spanHighlight("h-1", 8, 15)],
+    });
+    expect(ids(set)).toEqual(["d-1", "d-over", "h-1"]);
+  });
+});
+
+test("suppressedTargets: entries the laid-out document has no element for, by kind", () => {
+  const set = project({
+    annotations: [span("d-1", 0, 11), span("same", 5, 20)],
+    highlights: [
+      spanHighlight("same", 30, 34),
+      spanHighlight("h-gone", 40, 44),
+    ],
+    pending: { start: 50, end: 54 },
+  });
+  const suppressed = suppressedTargets(set, [
+    { id: "d-1", labelId: "label-1" },
+    // A highlight's element does not stand for the annotation with its id.
+    { id: "same", labelId: HIGHLIGHT_LABEL_ID },
+  ]);
+  expect([...suppressed.annotation]).toEqual(["same"]);
+  expect([...suppressed.highlight]).toEqual(["h-gone"]);
 });

@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test";
 
 import { DocxHarness } from "./wrappers/DocxHarness";
 
-import type { AnnotationLabel, Highlight } from "../src/core/index";
+import type { Annotation, AnnotationLabel, Highlight } from "../src/core/index";
 import { setupDocxodusWasm } from "./helpers/docxodusWasm";
 import { serveFixtures } from "./helpers/fixtures";
 import { settledScrollTop } from "./helpers/geometry";
@@ -32,6 +32,8 @@ const CLAUSE_LABEL: AnnotationLabel = {
 };
 /** The colour of a selected annotation's outline. */
 const SELECTED_OUTLINE = "rgb(59, 130, 246)";
+/** Well under the 5 s a bounded scroll request waits before giving up. */
+const PROMPT_MS = 1000;
 /** A snippet of the fixture clear of every fixture annotation. */
 const SNIPPET = "sample DOCX document";
 
@@ -65,7 +67,15 @@ function fixtureText(page: Page): Promise<string> {
 
 /** The laid-out pages of the harness' annotator. */
 function pages(page: Page, name?: string): Locator {
-  return annotatorRoot(page, name).locator("[data-rca-docx] .page-container");
+  // The annotator's own page container: `rca-<scope id>-page-container`.
+  return annotatorRoot(page, name).locator(
+    '[data-rca-docx] [class$="-page-container"]'
+  );
+}
+
+/** The laid-out page boxes. */
+function pageBoxes(page: Page, name?: string): Locator {
+  return pages(page, name).locator('[class$="-page-box"]');
 }
 
 /** The laid-out parts of an annotation (not of a highlight with its id). */
@@ -249,7 +259,7 @@ test("renders the document; onDocumentLoad fires with pageCount null and the tex
   ]);
   await expect(pages(page)).toContainText("Hello World.");
   await expect(pages(page)).toContainText("The Definition section explains");
-  await expect(pages(page).locator(".page-box")).toHaveCount(1);
+  await expect(pageBoxes(page)).toHaveCount(1);
 });
 
 test("annotations d-1 and d-2 are projected as [data-annotation-id]", async ({
@@ -650,7 +660,7 @@ test("setZoom(1.5) scales the document; setZoom('fit-width') -> getZoom() === 1"
   await mount(<DocxHarness />);
   await waitForDocumentLoad(page);
   expect(await callHandle(page, "getZoom", [])).toBe(1);
-  const pageBox = pages(page).locator(".page-box");
+  const pageBox = pageBoxes(page);
   const width = async () => (await pageBox.boundingBox())?.width ?? 0;
   const natural = await width();
   expect(natural).toBeGreaterThan(0);
@@ -752,4 +762,208 @@ test("two viewers: selecting in one does not style the other", async ({
   expect(
     await callHandle(page, "getSelectedAnnotationIds", [], "right")
   ).toEqual([]);
+});
+
+test("two different documents side by side keep their own styles, and the host keeps its own", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <div>
+      {/* Host CSS for docxodus' default class names. */}
+      <style>
+        {".page-box { outline: 7px solid red } " +
+          ".docx-Normal { color: rgb(255, 0, 0) }"}
+      </style>
+      <div data-probes="">
+        <span className="page-content">probe</span>
+        <table>
+          <tbody>
+            <tr>
+              <td>cell</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: "flex" }}>
+        <DocxHarness name="left" />
+        <DocxHarness name="right" fixture="landscape" />
+      </div>
+    </div>
+  );
+  await waitForDocumentLoad(page, "left");
+  await waitForDocumentLoad(page, "right");
+
+  // Each page has its own document's geometry (Letter portrait at 96 dpi,
+  // Letter landscape) and its paragraphs their own style (11pt Cambria,
+  // 16pt Arial), though both documents style a "Normal" paragraph.
+  const size = async (name: string) => {
+    const box = await pageBoxes(page, name).first().boundingBox();
+    return [Math.round(box?.width ?? 0), Math.round(box?.height ?? 0)];
+  };
+  expect(await size("left")).toEqual([816, 1056]);
+  expect(await size("right")).toEqual([1056, 816]);
+  const paragraph = (name: string) =>
+    pages(page, name)
+      .locator("p")
+      .first()
+      .evaluate((p) => {
+        const style = getComputedStyle(p);
+        return [style.fontSize, style.fontFamily];
+      });
+  expect(await paragraph("left")).toEqual(["14.6667px", "Cambria, serif"]);
+  expect(await paragraph("right")).toEqual(["21.3333px", "Arial, sans-serif"]);
+  // The host's rules for docxodus' default class names miss the documents,
+  // whose classes are their annotator's own.
+  for (const name of ["left", "right"]) {
+    expect(
+      await pageBoxes(page, name)
+        .first()
+        .evaluate((box) => getComputedStyle(box).outlineStyle)
+    ).toBe("none");
+    expect(
+      await pages(page, name)
+        .locator("p")
+        .first()
+        .evaluate((p) => getComputedStyle(p).color)
+    ).not.toBe("rgb(255, 0, 0)");
+  }
+
+  // Nothing outside the annotators is restyled by either document.
+  const probes = await page.locator("[data-probes]").evaluate((el) => {
+    const span = getComputedStyle(el.querySelector("span") as Element);
+    const table = getComputedStyle(el.querySelector("table") as Element);
+    const body = getComputedStyle(document.body);
+    return {
+      spanPosition: span.position,
+      spanWhiteSpace: span.whiteSpace,
+      tableMaxWidth: table.maxWidth,
+      bodyMargin: body.margin,
+      bodyFont: body.fontFamily,
+    };
+  });
+  expect(probes).toEqual({
+    spanPosition: "static",
+    spanWhiteSpace: "normal",
+    tableMaxWidth: "none",
+    bodyMargin: "8px",
+    bodyFont: await page.evaluate(() => {
+      const fresh = document.createElement("iframe");
+      document.body.append(fresh);
+      const font = getComputedStyle(
+        fresh.contentDocument?.body as HTMLElement
+      ).fontFamily;
+      fresh.remove();
+      return font;
+    }),
+  });
+});
+
+test("with showStructural on, a structural paragraph gives way to an annotation sharing its start", async ({
+  mount,
+  page,
+}) => {
+  const paragraph: Annotation = {
+    id: "s-para",
+    annotationLabel: { id: "label-2", text: "Paragraph" },
+    json: { start: 0, end: 56 },
+    structural: true,
+  };
+  await mount(
+    <DocxHarness
+      annotationIds={["d-1", "d-2"]}
+      extraAnnotations={[paragraph]}
+      props={{ showStructural: true }}
+    />
+  );
+  await waitForDocumentLoad(page);
+
+  await expect(annotationParts(page, "d-1")).toHaveText(["Hello World"]);
+  await expect(annotationParts(page, "d-2")).toHaveText(["Important Clause"]);
+  await expect(annotationParts(page, "s-para")).toHaveCount(0);
+});
+
+test("scrollToAnnotation on a span the engine did not draw resolves false at once", async ({
+  mount,
+  page,
+}) => {
+  // Overlaps d-1, which starts first: docxodus draws d-1 only.
+  const over: Annotation = {
+    id: "d-over",
+    annotationLabel: { id: "label-2", text: "Definition" },
+    json: { start: 5, end: 20 },
+  };
+  await mount(<DocxHarness extraAnnotations={[over]} />);
+  await waitForDocumentLoad(page);
+  await expect(annotationParts(page, "d-1")).toHaveCount(1);
+  await expect(annotationParts(page, "d-over")).toHaveCount(0);
+
+  const elapsed = await page.evaluate(async () => {
+    const started = performance.now();
+    const result = await window.__rca?.scrollToAnnotation("d-over");
+    return { result, ms: performance.now() - started };
+  });
+  expect(elapsed.result).toBe(false);
+  expect(elapsed.ms).toBeLessThan(PROMPT_MS);
+});
+
+test("with showStructural on, a structural paragraph gives way to an annotation strictly inside it", async ({
+  mount,
+  page,
+}) => {
+  // The whole second paragraph; d-2 ("Important Clause") lies strictly
+  // inside it, sharing neither end. docxodus would draw only the paragraph.
+  const paragraph: Annotation = {
+    id: "s-para-2",
+    annotationLabel: { id: "label-1", text: "Paragraph" },
+    json: { start: 57, end: 126 },
+    structural: true,
+  };
+  await mount(
+    <DocxHarness
+      annotationIds={["d-1", "d-2"]}
+      extraAnnotations={[paragraph]}
+      props={{ showStructural: true }}
+    />
+  );
+  await waitForDocumentLoad(page);
+
+  await expect(annotationParts(page, "d-2")).toHaveText(["Important Clause"]);
+  await expect(annotationParts(page, "s-para-2")).toHaveCount(0);
+});
+
+test("a hostile label id puts no rule on the page: the only stylesheets are the annotator's two, scoped", async ({
+  mount,
+  page,
+}) => {
+  const hostile: Annotation = {
+    id: "d-hostile",
+    annotationLabel: {
+      id: "x{}body{display:none}.y",
+      text: "</style><b>",
+      color: "red;}body{display:none",
+    },
+    json: { start: 23, end: 29 },
+  };
+  await mount(
+    <DocxHarness annotationIds={["d-1"]} extraAnnotations={[hostile]} />
+  );
+  await waitForDocumentLoad(page);
+  await expect(annotationParts(page, "d-hostile")).toHaveText(["sample"]);
+
+  const docx = annotatorRoot(page).locator("[data-rca-docx]");
+  const scope = `[data-rca-docx="${await docx.getAttribute("data-rca-docx")}"]`;
+  const sheets = await docx.evaluate((el) =>
+    Array.from(el.querySelectorAll("style"), (style) =>
+      Array.from(style.sheet?.cssRules ?? []).map((rule) => rule.cssText)
+    )
+  );
+  // The document's stylesheet and the format's, nothing projection added.
+  expect(sheets).toHaveLength(2);
+  for (const rule of sheets.flat()) {
+    expect(rule.startsWith(scope) || rule.startsWith("@media")).toBe(true);
+  }
+  expect(
+    await page.evaluate(() => getComputedStyle(document.body).display)
+  ).toBe("block");
 });

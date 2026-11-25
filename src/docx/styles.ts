@@ -3,8 +3,8 @@
  * colours and label chips, the selected annotations, the highlights' own
  * colours and the active highlight. Ported from the `customCss` of
  * OpenContracts' `DocxAnnotator` (`renderers/docx/DocxAnnotator.tsx`,
- * 98286cabf); docxodus' own `generateAnnotationCss` supplies the base
- * `.oc-annot-highlight` rule underneath.
+ * 98286cabf), with the base `.oc-annot-highlight` rule underneath that
+ * OpenContracts had docxodus' `generateAnnotationCss` generate.
  *
  * Label chips are `::before` pseudo-elements on an annotation's first span
  * (`content: attr(data-label)`), so they are not elements: `labelDisplay:
@@ -17,38 +17,32 @@
  * of a rule; the label background is a `color-mix` (any CSS colour, not only
  * hex); a highlight's colour is its own (`--annot-color`) instead of one per
  * source; the chip's font size and stacking are the custom properties
- * `--rca-label-font-size` and `--rca-z-label-chip`; and a page zoomed wider
- * than the view is aligned to the start, so all of it can be scrolled to.
+ * `--rca-label-font-size` and `--rca-z-label-chip`; a page zoomed wider
+ * than the view is aligned to the start, so all of it can be scrolled to;
+ * and the base highlight rule is written here, scoped, instead of by
+ * `generateAnnotationCss`, whose per-label rules (`.oc-annot-label-<id>`,
+ * unused: a projected element carries its colour inline) put label ids into
+ * a page-wide stylesheet unescaped.
  */
 import { highlightColor, labelColor } from "../core/index";
 import type { AnnotationLabel, Highlight, LabelDisplay } from "../core/index";
 import {
   ACTIVE_HIGHLIGHT_LABEL_ID,
+  ANNOTATION_FALLBACK_COLOR,
   CSS_CLASS_PREFIX,
   HIGHLIGHT_LABEL_ID,
   HOVER_OUTLINE_COLOR,
   LABEL_BACKGROUND_PERCENT,
   LABEL_CHIP_FONT_SIZE,
   LABEL_CHIP_Z_INDEX,
-  PAGE_CONTAINER_CLASS,
   PENDING_LABEL_ID,
   SELECTED_BACKGROUND,
   SELECTED_OUTLINE_COLOR,
+  SPAN_BACKGROUND_PERCENT,
 } from "./constants";
-
-/**
- * `value` as a quoted CSS string: backslashes and quotes escaped, line
- * breaks and other control characters as hex escapes.
- */
-export function cssString(value: string): string {
-  const escaped = value
-    .replace(/[\\"]/g, "\\$&")
-    .replace(
-      /[\u0000-\u001f\u007f]/g,
-      (c) => `\\${c.charCodeAt(0).toString(16)} `
-    );
-  return `"${escaped}"`;
-}
+import { cssString } from "./cssString";
+import { pageClass } from "./isolation";
+import type { DocxScope } from "./isolation";
 
 const SYNTHETIC_LABEL_IDS = [
   HIGHLIGHT_LABEL_ID,
@@ -69,8 +63,8 @@ const SINGLE = `.${CSS_CLASS_PREFIX}single`;
 const START = `.${CSS_CLASS_PREFIX}start`;
 
 export interface DocxCssInput {
-  /** The value of the instance's `data-rca-docx` attribute. */
-  scope: string;
+  /** The instance's scope. */
+  scope: DocxScope;
   /** Every annotation label of the document, once each. */
   labels: readonly AnnotationLabel[];
   selectedIds: readonly string[];
@@ -86,7 +80,7 @@ export function buildDocxCss({
   highlights,
   labelDisplay,
 }: DocxCssInput): string {
-  const root = `[data-rca-docx=${cssString(scope)}]`;
+  const root = scope.selector;
   const rules: string[] = [];
   const rule = (selectors: string[], body: string) =>
     rules.push(
@@ -96,7 +90,18 @@ export function buildDocxCss({
   // docxodus centres the pages (`align-items: center`), so a page wider than
   // the view (zoomed in) overflows on both sides and its left part can never
   // be scrolled to. `safe` aligns it to the start once it overflows.
-  rule([`.${PAGE_CONTAINER_CLASS}`], "  align-items: safe center;");
+  rule([`.${pageClass(scope, "container")}`], "  align-items: safe center;");
+  // What every projected span looks like, in its label's colour (set inline
+  // by docxodus as `--annot-color`).
+  rule(
+    [HIGHLIGHT],
+    "  background-color: color-mix(in srgb, " +
+      `var(--annot-color, ${ANNOTATION_FALLBACK_COLOR}) ` +
+      `${SPAN_BACKGROUND_PERCENT}%, transparent);\n` +
+      `  border-bottom: 2px solid var(--annot-color, ${ANNOTATION_FALLBACK_COLOR});\n` +
+      "  display: inline;\n" +
+      "  padding: 0.1em 0;"
+  );
   // Annotation spans need relative positioning for the ::before labels.
   rule([SINGLE, START], "  position: relative;");
   rule(
