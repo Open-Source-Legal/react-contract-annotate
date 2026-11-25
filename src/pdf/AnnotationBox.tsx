@@ -32,17 +32,18 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import styled, { css } from "styled-components";
+import { css } from "styled-components";
 
 import {
   isUrlAnnotation,
   LabelChip,
   labelColor,
+  styled,
+  useAnnotationActionButtons,
   useDisplaySettings,
   useOnAnnotationClick,
   useOnAnnotationHover,
   useOpenLink,
-  useAnnotationActionButtons,
   useRenderAnnotationActions,
   useSelectedAnnotationIds,
   useSelectedRelations,

@@ -50,6 +50,7 @@ export { ESCAPE_KEY } from "./constants";
 export { isUrlAnnotation, useOpenLink } from "./links";
 export { useAnnotationActionButtons } from "./AnnotationActionButtons";
 export { LabelChip, labelColor } from "./LabelChip";
+export { styled } from "./styled";
 export type { LabelChipProps } from "./LabelChip";
 
 export {

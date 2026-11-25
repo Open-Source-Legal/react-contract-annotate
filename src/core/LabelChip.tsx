@@ -9,7 +9,6 @@
  * ported `annotationChipLabel` (`annotator/utils/urlAnnotation.ts`).
  */
 import type { ReactNode, SyntheticEvent } from "react";
-import styled from "styled-components";
 
 import {
   DEFAULT_LABEL_COLOR,
@@ -18,6 +17,7 @@ import {
 } from "./constants";
 import { safeCssColor } from "./geometry/colorUtils";
 import { getContrastColor } from "./geometry/transform";
+import { styled } from "./styled";
 import type { AnnotationLabel } from "./types";
 
 /**

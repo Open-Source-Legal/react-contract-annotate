@@ -17,9 +17,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
-import styled from "styled-components";
 
-import { useOpenLink } from "../core/index";
+import { styled, useOpenLink } from "../core/index";
 import { Z_INDEX } from "./constants";
 
 interface NativeLink {

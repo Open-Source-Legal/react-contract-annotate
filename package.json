@@ -1,6 +1,6 @@
 {
   "name": "@os-legal/react-contract-annotate",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Control-free React viewer/annotator for OpenContracts annotations on PDF and DOCX",
   "license": "MIT",
   "repository": {

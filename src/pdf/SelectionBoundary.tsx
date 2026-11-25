@@ -17,9 +17,9 @@
  */
 import { useRef } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import styled, { css } from "styled-components";
+import { css } from "styled-components";
 
-import { computeAnnotationBoxShadow, hexToRgb } from "../core/index";
+import { computeAnnotationBoxShadow, hexToRgb, styled } from "../core/index";
 import type { BoundingBox } from "../core/index";
 import {
   ANNOTATION_BOUNDARY_RADIUS,

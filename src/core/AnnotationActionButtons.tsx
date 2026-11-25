@@ -4,10 +4,10 @@
  * button and reports the click; what an action does is the host's.
  */
 import type { ReactNode } from "react";
-import styled from "styled-components";
 
 import { ANNOTATION_ACTION_BUTTON } from "./constants";
 import { useAnnotationActions } from "./formatHooks";
+import { styled } from "./styled";
 import type { Annotation } from "./types";
 
 const ActionButton = styled.button`

@@ -62,11 +62,11 @@ import type {
   ReactNode,
   TouchEvent as ReactTouchEvent,
 } from "react";
-import styled from "styled-components";
 
 import {
   draftPages,
   ESCAPE_KEY,
+  styled,
   useCompleteSelection,
   useEditing,
   usePendingActions,

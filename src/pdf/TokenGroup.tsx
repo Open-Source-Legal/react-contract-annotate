@@ -14,8 +14,8 @@
  * The group must be a sibling of the box, not inside it: the rects are
  * positioned against the page's canvas wrapper.
  */
-import styled from "styled-components";
 
+import { styled } from "../core/index";
 import type { TokenId } from "../core/index";
 import {
   ANNOTATION_TOKEN_RADIUS,
