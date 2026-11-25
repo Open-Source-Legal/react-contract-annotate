@@ -28,6 +28,12 @@ export {
 export type { DocumentStatusUpdate } from "./formatHooks";
 export type { DisplaySettings, DocumentStatus } from "./state/atoms";
 
+export {
+  useCompleteSelection,
+  usePendingActions,
+  usePendingSelection,
+} from "./pending";
+
 export { useRequestScroll, useScrollRequest } from "./scroll";
 export type {
   ScrollRequest,

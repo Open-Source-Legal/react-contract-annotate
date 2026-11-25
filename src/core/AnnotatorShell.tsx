@@ -4,7 +4,8 @@
  * (the scroll container) with the theming custom properties and the
  * loading / error slots, fires `onDocumentLoad` / `onError` from the status
  * the format reports, raises scroll requests for selection and highlight
- * changes, and implements the imperative handle on top of the driver the
+ * changes, hosts the selection-menu slot for the pending selection (see
+ * `pending.ts`), and implements the imperative handle on top of the driver the
  * format registers (see `format.ts`).
  */
 import { useAtomValue } from "jotai";
@@ -35,8 +36,14 @@ import {
   formatDriverAtom,
 } from "./format";
 import { normalizeAnnotations } from "./normalize";
+import {
+  pendingHandleMethods,
+  useClearPendingOnEscape,
+  useSyncSelectionCallbacks,
+} from "./pending";
 import { cancelScrollRequest, useRequestScroll } from "./scroll";
 import type { ScrollTarget } from "./scroll";
+import { SelectionMenuHost } from "./slots/SelectionMenuHost";
 import {
   AnnotatorProvider,
   useAnnotatorStore,
@@ -110,6 +117,7 @@ const ROOT_STYLE = Object.freeze({
   "--rca-z-annotation": THEME_DEFAULTS.zAnnotation,
   "--rca-z-highlight": THEME_DEFAULTS.zHighlight,
   "--rca-z-pending": THEME_DEFAULTS.zPending,
+  "--rca-z-menu": THEME_DEFAULTS.zMenu,
   "--rca-structural-color": THEME_DEFAULTS.structuralColor,
 }) as CSSProperties;
 
@@ -165,6 +173,8 @@ function ShellBody<M>({ common, handleRef, children }: AnnotatorShellProps<M>) {
   useSelectionScroll(store, tick, scrollOnSelect, selectionSlot);
   useHighlightScroll(store, tick, highlightSlot);
   useDocumentLifecycle(store, common);
+  useSyncSelectionCallbacks(common);
+  useClearPendingOnEscape();
 
   const handle = useHandle(store, applyZoom, quiet);
   useImperativeHandle(handleRef, () => handle, [handle]);
@@ -182,6 +192,9 @@ function ShellBody<M>({ common, handleRef, children }: AnnotatorShellProps<M>) {
       ref={setRoot}
       data-rca-root=""
       data-rca-instance={instanceId}
+      // Focusable, so a click inside the document focuses the root and
+      // Escape is heard there (see `useClearPendingOnEscape`).
+      tabIndex={-1}
       className={common.className}
       style={common.style ? { ...ROOT_STYLE, ...common.style } : ROOT_STYLE}
     >
@@ -190,6 +203,7 @@ function ShellBody<M>({ common, handleRef, children }: AnnotatorShellProps<M>) {
       {status.state === "error" &&
         status.error &&
         common.renderError?.(status.error)}
+      <SelectionMenuHost render={common.renderSelectionMenu} />
     </div>
   );
 }
@@ -631,19 +645,6 @@ function activeId(id: string | null): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * The pending-selection methods while the shell keeps no pending selection:
- * there is never one to read, commit or clear.
- */
-const noPendingSelection: Pick<
-  AnnotatorHandle,
-  "getPendingSelection" | "commitPendingSelection" | "clearPendingSelection"
-> = {
-  getPendingSelection: () => null,
-  commitPendingSelection: () => {},
-  clearPendingSelection: () => {},
-};
-
-/**
  * One handle object for the life of the instance; every method reads the
  * store at call time.
  */
@@ -723,7 +724,7 @@ function useHandle(
         setSelection([], API);
       },
 
-      ...noPendingSelection,
+      ...pendingHandleMethods(store),
 
       getPageCount: () => driver()?.getPageCount() ?? null,
       getVisiblePageRange: () => driver()?.getVisiblePageRange() ?? null,

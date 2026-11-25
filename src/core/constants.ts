@@ -141,6 +141,8 @@ export const PAGE_OVERSCAN = 2;
 export const LONG_PRESS_MS = 500;
 /** Touch movement (px) that cancels a pending long press. */
 export const TOUCH_MOVE_THRESHOLD_PX = 10;
+/** `KeyboardEvent.key` of the key that cancels a pending selection. */
+export const ESCAPE_KEY = "Escape";
 
 /**
  * Defaults of the theming custom properties the shell defines on its root.
@@ -164,6 +166,12 @@ export const THEME_DEFAULTS = {
    * component as an annotation, with the same `zIndex: 2`.
    */
   zPending: "2",
+  /**
+   * `--rca-z-menu`: stacking of the selection-menu host, which is portalled
+   * to `document.body`. OpenContracts' `Z_INDEX.CONTEXT_MENU` (9999), which
+   * its selection menu uses.
+   */
+  zMenu: "9999",
   /**
    * `--rca-structural-color`: OpenContracts has no colour of its own for
    * structural annotations; this is its default label grey.

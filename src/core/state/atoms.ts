@@ -15,6 +15,7 @@ import type {
   AnnotationLabel,
   Highlight,
   LabelDisplay,
+  PendingSelection,
   Relation,
 } from "../types";
 
@@ -50,6 +51,13 @@ export const zoomAtom = atom<number>(1);
 export const zoomInitialisedAtom = atom<boolean>(false);
 export const activeHighlightIdAtom = atom<string | null>(null);
 export const hoveredAnnotationIdAtom = atom<string | null>(null);
+
+/**
+ * The text selection the user has just completed and nobody has committed or
+ * cleared yet. Viewer-level state, so it survives its page leaving the
+ * virtual window; `pending.ts` owns every write.
+ */
+export const pendingSelectionAtom = atom<PendingSelection | null>(null);
 
 // ---------------------------------------------------------------------------
 // Display settings

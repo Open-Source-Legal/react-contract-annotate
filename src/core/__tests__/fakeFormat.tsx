@@ -1,7 +1,8 @@
 /**
  * A minimal format for testing the shell: it registers a driver, mirrors a
  * chosen document status into the store, records what the shell asks of it,
- * and (optionally) completes every scroll request on the next tick.
+ * (optionally) completes every scroll request on the next tick, and completes
+ * a text selection (`FAKE_DRAFT` at `FAKE_ANCHOR`) when its button is clicked.
  */
 import { act } from "@testing-library/react";
 import { useEffect, useLayoutEffect } from "react";
@@ -14,12 +15,14 @@ import {
   useRegisterFormatDriver,
 } from "../format";
 import { useSetDocumentStatus } from "../formatHooks";
+import { useCompleteSelection } from "../pending";
 import type { ScrollRequest } from "../scroll";
 import { useScrollRequest } from "../scroll";
 import { useSetControllable } from "../state/controllable";
 import type { ControllableKey } from "../state/controllable";
 import type {
   Annotation,
+  AnnotationDraft,
   AnnotatorCommonProps,
   AnnotatorHandle,
   ChangeInfo,
@@ -47,6 +50,15 @@ export const LOADING: FakeStatus = Object.freeze({
   error: null,
 });
 
+/** What the fake's "select" button completes. */
+export const FAKE_DRAFT: AnnotationDraft = Object.freeze({
+  json: { start: 3, end: 9 },
+  rawText: "sample",
+  page: 0,
+  annotationLabel: null,
+});
+export const FAKE_ANCHOR = Object.freeze({ x: 100, y: 120 });
+
 export interface FakeRecorder {
   /** Renders of the fake format component. */
   renders: number;
@@ -60,6 +72,11 @@ export interface FakeRecorder {
   write<T>(key: ControllableKey, next: T, info: ChangeInfo): void;
   /** Tells the shell `resolveFitWidth()` may differ. Usable once mounted. */
   notifyFitWidthChanged(): void;
+  /** Completes a text selection the way a format does. Usable once mounted. */
+  completeSelection(
+    draft: AnnotationDraft,
+    anchor: { x: number; y: number }
+  ): void;
   /** When false, `canDraw` answers false for everything. Default true. */
   drawable: boolean;
   /** Tells the shell `canDraw` may answer differently. Usable once mounted. */
@@ -77,6 +94,9 @@ export function createRecorder(): FakeRecorder {
       throw new Error("the fake format is not mounted");
     },
     notifyFitWidthChanged() {
+      throw new Error("the fake format is not mounted");
+    },
+    completeSelection() {
       throw new Error("the fake format is not mounted");
     },
     drawable: true,
@@ -111,6 +131,7 @@ export function FakeFormat({
   );
   const notifyFitWidthChanged = useNotifyFitWidthChanged();
   const notifyDrawabilityChanged = useNotifyDrawabilityChanged();
+  const completeSelection = useCompleteSelection();
   useLayoutEffect(() => {
     const setters = {
       selection: setSelection,
@@ -120,6 +141,7 @@ export function FakeFormat({
     recorder.write = (key, next, info) => setters[key](next, info);
     recorder.notifyFitWidthChanged = notifyFitWidthChanged;
     recorder.notifyDrawabilityChanged = notifyDrawabilityChanged;
+    recorder.completeSelection = completeSelection;
   }, [
     recorder,
     setSelection,
@@ -127,6 +149,7 @@ export function FakeFormat({
     setActiveHighlight,
     notifyFitWidthChanged,
     notifyDrawabilityChanged,
+    completeSelection,
   ]);
 
   const setStatus = useSetDocumentStatus();
@@ -169,7 +192,15 @@ export function FakeFormat({
     return () => clearTimeout(timer);
   }, [recorder, request, complete, autoComplete]);
 
-  return <div data-fake-format="" />;
+  return (
+    <div data-fake-format="">
+      <button
+        type="button"
+        data-fake-select=""
+        onClick={() => completeSelection(FAKE_DRAFT, FAKE_ANCHOR)}
+      />
+    </div>
+  );
 }
 
 /** The shell with the fake format inside. */
