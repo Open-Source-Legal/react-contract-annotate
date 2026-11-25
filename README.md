@@ -98,7 +98,9 @@ but token highlights and text selection are off. The initial zoom fits the page
 width unless `zoom` or a numeric `defaultZoom` says otherwise. `source` is a
 `{ url }` (with optional `httpHeaders` and `withCredentials`), `{ data }` (bytes)
 or `{ document }` (a pdf.js `PDFDocumentProxy` you loaded; the library never
-destroys it).
+destroys it). A `{ data }` source is keyed by the identity of its bytes object:
+a new object loads the document again, even with the same bytes, so keep the
+one you have.
 
 ```tsx
 import {
@@ -137,7 +139,8 @@ export function Contract({
 ### DOCX
 
 `text` is the parser's plain text; a DOCX annotation's `{ start, end }` index
-into it. `source` is `{ url }` or `{ data }` (a `Uint8Array`).
+into it. `source` is `{ url }` or `{ data }` (a `Uint8Array`, keyed by its
+identity as on PDF).
 
 ```tsx
 import { DocxAnnotator } from "@os-legal/react-contract-annotate/docx";
@@ -199,7 +202,7 @@ the box falls back to yellow, as in OpenContracts); a DOCX takes any of them.
 passing a new object (or a new array), never by mutating one in place:
 normalisation is memoised by object identity.
 
-### Props
+### Common props
 
 | Group | Props |
 |---|---|
@@ -211,7 +214,8 @@ normalisation is memoised by object identity.
 | Slots | `renderSelectionMenu`, `renderAnnotationActions`, `renderLoading`, `renderError` |
 | Lifecycle | `onDocumentLoad({ pageCount, text })`, `onError`, `onVisiblePagesChange`, `className`, `style` |
 
-Defaults and semantics are documented on `AnnotatorCommonProps`.
+Defaults and semantics are documented on `AnnotatorCommonProps`. Every format
+takes them; what DOCX does not support is listed in its support matrix below.
 
 ### Controlled and internal state
 
@@ -372,7 +376,9 @@ Each format keeps its own click model:
   a modifier-click selects it. Links embedded in the PDF stay clickable
   (`enableNativeLinks`, default true). Both go to `onOpenLink(url, source)` when
   supplied; otherwise `http(s)` URLs open in a new tab with `noopener` and anything
-  else is ignored.
+  else is ignored. An embedded link under an annotation box is covered by the box
+  (both stack at `2`) and cannot be clicked there; raise `--rca-z-native-links`
+  to keep such links clickable.
 - **Links (DOCX).** Hyperlinks inside a DOCX follow the same policy, reported with
   source `"native"` and the URL as the document wrote it (a relative URL is not
   resolved, so without `onOpenLink` it is ignored). A click on one never navigates
@@ -400,9 +406,10 @@ TARGET badges on PDF); then `showSelectedOnly`, `showStructural` and the
 | `approved` / `rejected` styling, SOURCE / TARGET badges | yes | **no** |
 | `linkUrl` click-to-open | yes | **no** |
 | `scrollToPage`, `getPageCount`, `getVisiblePageRange` | yes | returns `false` / `null` |
+| `showBoundingBoxes`, `onVisiblePagesChange`, making a highlight active by clicking it | yes | **no** (no warning) |
 
-Unsupported props are accepted and ignored on DOCX, with a one-time development
-warning.
+Other unsupported props are accepted and ignored on DOCX, with a one-time
+development warning.
 
 ### Overlap rule
 
