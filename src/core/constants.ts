@@ -101,6 +101,15 @@ export const PAWLS_COORDINATE_EPSILON = 0.5;
  */
 export const PAGE_SPANNING_TOKEN_THRESHOLD = 0.9;
 
+/**
+ * Approximate dimensions (px) of the host's selection menu, used to keep it
+ * inside the viewport when its real size is not known.
+ */
+export const SELECTION_MENU = {
+  APPROX_WIDTH: 200,
+  APPROX_HEIGHT: 200,
+} as const;
+
 // Compact annotation JSON v2 safety limits
 /** Maximum span for a single range segment. */
 export const COMPACT_JSON_MAX_RANGE_SPAN = 10_000;
