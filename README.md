@@ -11,6 +11,11 @@ the document, its annotations and highlights unless you supply a render slot.
 The library never fetches annotations and never persists anything: it reports a
 selection and you decide what to do with it.
 
+**[Live demo](https://open-source-legal.github.io/react-contract-annotate/)**:
+a PDF and a DOCX (two public-domain model agreements of the U.S. National
+Institutes of Health) with sample annotations, and the demo's own controls
+around the viewer.
+
 Selection, zoom and the active highlight each work either **controlled** by you
 or **managed internally**. Several viewers can share a page without affecting
 each other.
@@ -18,10 +23,9 @@ each other.
 ## Install
 
 The package is `@os-legal/react-contract-annotate`. **It is not published to npm
-yet** and the GitHub repository is private, so there is no registry install
-today. Until it is published, build it from a checkout (`yarn build`) and link
-it into your project, as `examples/demo` does with
-`"@os-legal/react-contract-annotate": "portal:../.."`.
+yet**, so there is no registry install today. Until it is published, build it
+from a checkout (`yarn build`) and link it into your project, as `examples/demo`
+does with `"@os-legal/react-contract-annotate": "portal:../.."`.
 
 Peer dependencies:
 
@@ -167,10 +171,12 @@ export function Agreement({
 }
 ```
 
-`examples/demo` shows both formats behind the dispatcher with host-side controls
-(zoom, jump, search, label to apply, a controlled / internal switch). The
-samples above and below are kept there under `examples/demo/src/snippets/` so
-that they are type-checked.
+`examples/demo` (the live demo above) shows both formats behind the dispatcher
+with host-side controls: an annotation list that jumps and filters by label, a
+selection menu in the `renderSelectionMenu` slot, relationships, zoom, search and
+a controlled / internal switch. Its documents are loaded from OpenContracts
+exports through `fromOpenContractsExport`. The samples above and below are kept
+there under `examples/demo/src/snippets/` so that they are type-checked.
 
 ## Data
 
@@ -435,6 +441,14 @@ not reproduce:
   cut off.
 - Selecting repeated text resolves to the occurrence the user selected, not the
   last one.
+- Annotations are drawn on a document whose HTML has a line break, a table or an
+  image. docxodus reads the HTML it projects onto as XML; OpenContracts hands
+  it HTML in which those elements have no end tag, the projection fails and the
+  document is shown without any annotation.
+- An annotation that crosses runs of different formatting at a space (a bold
+  defined term followed by plain text) is drawn. docxodus' HTML has a no-break
+  space at the edge of a run where the document's text has a plain one, so such
+  an annotation's text was never found.
 
 ### DOCX and untrusted documents
 
@@ -655,6 +669,10 @@ yarn check:dist         # entry points stay isolated from each other's engines
 # the demo: its own Yarn project, linked to the build above
 yarn build && yarn --cwd examples/demo install && yarn --cwd examples/demo dev
 ```
+
+The demo is published to GitHub Pages from `main` by `.github/workflows/pages.yml`;
+`examples/demo/README.md` says where its documents come from and how its data is
+made.
 
 **Parity with OpenContracts.** `fixtures/parity/eton.json` holds the box and
 token rectangles OpenContracts' own renderer (`SelectionBoundary` /
