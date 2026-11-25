@@ -10,7 +10,19 @@ import type {
   Highlight,
 } from "../../core/index";
 import { DocxAnnotator } from "../index";
+import type { DocxScope } from "../isolation";
 import { fakeDocxodus, flushPromises } from "./docxodusFake";
+
+// jsdom parses style sheets only in its main document (see `jsdomCss.ts`).
+vi.mock("../isolation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../isolation")>();
+  const { parseInJsdom } = await import("./jsdomCss");
+  return {
+    ...actual,
+    isolateDocument: (html: string, scope: DocxScope) =>
+      actual.isolateDocument(html, scope, parseInJsdom),
+  };
+});
 
 vi.mock("docxodus", async () =>
   (await import("./docxodusFake")).docxodusModule()

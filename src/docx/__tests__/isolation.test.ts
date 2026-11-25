@@ -4,6 +4,10 @@ import {
   scopeSelectorList,
   scopeStylesheet,
 } from "../isolation";
+import { parseInJsdom } from "./jsdomCss";
+
+// These check structure with jsdom's CSS parser (see `jsdomCss.ts`); the
+// security regression tests run with Chromium's, in `ct-tests/docx.ct.tsx`.
 
 const SCOPE = '[data-rca-docx="s1"]';
 
@@ -88,7 +92,9 @@ function splitSelectors(list: string): string[] {
 }
 
 test("no rule of the scoped document stylesheet can match outside the scope", () => {
-  const { selectors, atRules } = parse(scopeStylesheet(DOCUMENT_CSS, SCOPE));
+  const { selectors, atRules } = parse(
+    scopeStylesheet(DOCUMENT_CSS, SCOPE, parseInJsdom)
+  );
 
   expect(selectors.length).toBeGreaterThan(10);
   for (const selector of selectors) {
@@ -97,8 +103,9 @@ test("no rule of the scoped document stylesheet can match outside the scope", ()
     expect(selector).not.toMatch(/^\[data-rca-docx="s1"\] [+~]/);
   }
   // Only conditional groups survive; @page, @font-face, @keyframes and
-  // @import act on the whole page.
-  expect(atRules).toEqual(["@media print", "@supports (display: grid)"]);
+  // @import act on the whole page. (jsdom has no `CSSSupportsRule`, so its
+  // `@supports` is dropped here; Chromium keeps it.)
+  expect(atRules).toEqual(["@media print"]);
 });
 
 test("html, body and :root stand for the scope element", () => {
@@ -115,27 +122,53 @@ test("html, body and :root stand for the scope element", () => {
   expect(scopeSelectorList("body ~ div, p", SCOPE)).toBe(`${SCOPE} p`);
 });
 
-test("strings, comments and escapes cannot end a rule early", () => {
-  const scoped = scopeStylesheet(
-    'p[title="a } b { c"] { color: red; } /* } body { */ .x\\{ { color: blue; }',
-    SCOPE
+test("selectors that could reach outside the scope are dropped", () => {
+  // Starting with a combinator: `[scope] ~ x` would be the scope's siblings.
+  expect(scopeSelectorList("~ div", SCOPE)).toBeNull();
+  expect(scopeSelectorList("+ div, p", SCOPE)).toBe(`${SCOPE} p`);
+  expect(scopeSelectorList("> div", SCOPE)).toBeNull();
+  // The nesting selector, outside a string only.
+  expect(scopeSelectorList("& ~ *", SCOPE)).toBeNull();
+  expect(scopeSelectorList('a[title="&"]', SCOPE)).toBe(
+    `${SCOPE} a[title="&"]`
   );
-  // (Read as text: jsdom's CSS parser itself mis-reads the escaped brace.)
-  expect(scoped).toBe(
-    `${SCOPE} p[title="a } b { c"] { color: red; }\n` +
-      `${SCOPE} .x\\{ { color: blue; }`
+  // Commas inside brackets and strings do not split the list.
+  expect(scopeSelectorList('a:not([title="x, y"]) > b, i', SCOPE)).toBe(
+    `${SCOPE} a:not([title="x, y"]) > b, ${SCOPE} i`
   );
+  // A list that cannot be split with confidence is dropped whole.
+  expect(scopeSelectorList('a[title="x, y], b', SCOPE)).toBeNull();
 });
 
-test("declarations are kept as written", () => {
+test("the output is written from the parsed rules: what the parser did not keep is gone", () => {
+  // The declarations are the parser's serialisation (`style.cssText`).
   expect(
     scopeStylesheet(
-      "p.docx-Normal { --docx-auto-line-spacing: 1.15; line-height: calc(1lh * var(--docx-auto-line-spacing)); }",
-      SCOPE
+      "p.docx-Normal { --docx-auto-line-spacing: 1.15; color: red; }",
+      SCOPE,
+      parseInJsdom
     )
   ).toBe(
-    `${SCOPE} p.docx-Normal { --docx-auto-line-spacing: 1.15; line-height: calc(1lh * var(--docx-auto-line-spacing)); }`
+    `${SCOPE} p.docx-Normal { --docx-auto-line-spacing: 1.15; color: red; }`
   );
+  // A rule without declarations, an empty group, and anything unparsable
+  // write nothing.
+  expect(scopeStylesheet("p { } @media print { }", SCOPE, parseInJsdom)).toBe(
+    ""
+  );
+  expect(scopeStylesheet("p { color: red }", SCOPE, () => null)).toBe("");
+});
+
+test("a style rule with nested rules is dropped", () => {
+  const parseNested = (css: string) => {
+    const rules = parseInJsdom(css);
+    // jsdom does not parse nesting: give the rule a nested child, as a
+    // browser parsing `p { color: blue; & ~ * { display: none } }` would.
+    if (rules)
+      Object.defineProperty(rules[0], "cssRules", { value: [rules[0]] });
+    return rules;
+  };
+  expect(scopeStylesheet("p { color: blue }", SCOPE, parseNested)).toBe("");
 });
 
 test("isolateDocument takes the stylesheet out, prefixes ids and follows links to them", () => {
@@ -144,9 +177,10 @@ test("isolateDocument takes the stylesheet out, prefixes ids and follows links t
     '<style>body { margin: 0 }</style><div id="pagination-staging" class="x-staging">' +
       '<p><a id="_Toc1"></a><a href="#_Toc1">see</a><a href="https://e.com/#a">out</a></p>' +
       '</div><div id="pagination-container" class="x-container"></div>',
-    scope
+    scope,
+    parseInJsdom
   );
-  expect(css).toBe(`${scope.selector} { margin: 0 }`);
+  expect(css).toBe(`${scope.selector} { margin: 0; }`);
   expect(html).toBe(
     '<div class="x-staging"><p>' +
       `<a id="${scope.idPrefix}_Toc1"></a><a href="#${scope.idPrefix}_Toc1">see</a>` +

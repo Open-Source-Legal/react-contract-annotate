@@ -11,8 +11,9 @@
  * other on another occurrence of its text elsewhere in the document. User
  * annotations, highlights and the pending selection take precedence over
  * structural annotations, so a structural span that overlaps any of them is
- * left out. Among the others the engine's choice stands; which targets it
- * did not draw is read back from the laid-out document (`suppressedTargets`).
+ * left out (`gaveWay`). Among the others the engine's choice stands; which
+ * targets it did not draw is read back from the laid-out document, and
+ * reported with those that gave way (`suppressedTargets`).
  *
  * Changed from OpenContracts: search results and chat sources are one kind,
  * highlights, under the synthetic labels `__highlight__` and (the active one)
@@ -140,13 +141,30 @@ export function withoutIndentation(html: string): string {
   return html.replace(SERIALIZER_INDENTATION, "><");
 }
 
-export function buildProjectionSet({
+/** What `buildProjection` makes: the set, and what was left out of it. */
+export interface Projection {
+  set: ExternalAnnotationSet;
+  /**
+   * The structural annotations that gave way (see the module comment): they
+   * pass the display filters but are never drawn.
+   */
+  gaveWay: ReadonlySet<string>;
+}
+
+/** The projection set alone (see `buildProjection`). */
+export function buildProjectionSet(
+  input: ProjectionInput
+): ExternalAnnotationSet {
+  return buildProjection(input).set;
+}
+
+export function buildProjection({
   text,
   annotations,
   highlights,
   activeHighlightId,
   pending = null,
-}: ProjectionInput): ExternalAnnotationSet {
+}: ProjectionInput): Projection {
   const spans = annotations.filter(
     (a): a is SpanAnnotation =>
       a.kind === "span" && isDrawableSpan(a.json, text)
@@ -168,12 +186,14 @@ export function buildProjectionSet({
 
   const labelledText: Entry[] = [];
   const textLabels: Record<string, DocxodusLabel> = {};
+  const gaveWay = new Set<string>();
 
   for (const annotation of spans) {
     if (
       annotation.structural &&
       preferred.some((span) => overlaps(span, annotation.json))
     ) {
+      gaveWay.add(annotation.id);
       continue;
     }
     const label = annotation.annotationLabel;
@@ -223,7 +243,7 @@ export function buildProjectionSet({
     );
   }
 
-  return {
+  const set: ExternalAnnotationSet = {
     title: "",
     content: text,
     pageCount: 1,
@@ -238,18 +258,20 @@ export function buildProjectionSet({
     updatedAt: "",
     version: "1.0",
   };
+  return { set, gaveWay };
 }
 
 /** Ids of annotations and of highlights, kept apart. */
 export type TargetIds = Record<ScrollTarget["kind"], ReadonlySet<string>>;
 
 /**
- * The annotations and highlights a projection was asked to draw but did not:
- * the entries of `set` whose id `drawn` (the elements the laid-out document
+ * The annotations and highlights a projection does not draw though they pass
+ * the display filters: the structural annotations that gave way, and the
+ * entries of the set whose id `drawn` (the elements the laid-out document
  * holds) has no element of the same kind for.
  */
 export function suppressedTargets(
-  set: ExternalAnnotationSet,
+  { set, gaveWay }: Projection,
   drawn: Iterable<{ id: string; labelId: string | null }>
 ): TargetIds {
   const present = {
@@ -261,7 +283,7 @@ export function suppressedTargets(
     if (kind !== "pending") present[kind].add(id);
   }
   const missing = {
-    annotation: new Set<string>(),
+    annotation: new Set<string>(gaveWay),
     highlight: new Set<string>(),
   };
   for (const { id = "", annotationLabel } of set.labelledText) {

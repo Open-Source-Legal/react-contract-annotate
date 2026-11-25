@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 
 import { DocxHarness } from "./wrappers/DocxHarness";
+import { ScopedSheet } from "./wrappers/ScopedSheet";
 
 import type { Annotation, AnnotationLabel, Highlight } from "../src/core/index";
 import { setupDocxodusWasm } from "./helpers/docxodusWasm";
@@ -32,6 +33,74 @@ const CLAUSE_LABEL: AnnotationLabel = {
 };
 /** The colour of a selected annotation's outline. */
 const SELECTED_OUTLINE = "rgb(59, 130, 246)";
+/**
+ * Every rule of every stylesheet under `scopeElement`, rules inside grouping
+ * rules included: the selectors of a style rule (split at its top-level
+ * commas) and how many nested rules it has, or the kind of any other rule.
+ */
+function insertedRules(
+  scopeElement: Locator
+): Promise<{ kind: string; selectors: string[]; nested: number }[]> {
+  return scopeElement.evaluate((el) => {
+    const split = (list: string) => {
+      const parts: string[] = [];
+      let depth = 0;
+      let quote = "";
+      let from = 0;
+      for (let i = 0; i < list.length; i++) {
+        const char = list[i];
+        if (char === "\\") i++;
+        else if (quote) {
+          if (char === quote) quote = "";
+        } else if (char === '"' || char === "'") quote = char;
+        else if (char === "(" || char === "[") depth++;
+        else if (char === ")" || char === "]") depth--;
+        else if (char === "," && depth === 0) {
+          parts.push(list.slice(from, i).trim());
+          from = i + 1;
+        }
+      }
+      parts.push(list.slice(from).trim());
+      return parts;
+    };
+    const out: { kind: string; selectors: string[]; nested: number }[] = [];
+    const walk = (rules: CSSRuleList) => {
+      for (const rule of Array.from(rules)) {
+        if (rule instanceof CSSStyleRule) {
+          out.push({
+            kind: "style",
+            selectors: split(rule.selectorText),
+            nested: rule.cssRules.length,
+          });
+        } else if (rule instanceof CSSGroupingRule) {
+          walk(rule.cssRules);
+        } else {
+          out.push({ kind: rule.constructor.name, selectors: [], nested: 0 });
+        }
+      }
+    };
+    for (const style of Array.from(el.querySelectorAll("style"))) {
+      if (style.sheet) walk(style.sheet.cssRules);
+    }
+    return out;
+  });
+}
+
+/** Expects every inserted rule to be a style rule scoped to `scope`. */
+async function expectAllScoped(
+  scopeElement: Locator,
+  scope: string
+): Promise<void> {
+  const rules = await insertedRules(scopeElement);
+  for (const rule of rules) {
+    expect(rule.kind).toBe("style");
+    expect(rule.nested).toBe(0);
+    for (const selector of rule.selectors) {
+      expect(selector === scope || selector.startsWith(`${scope} `)).toBe(true);
+    }
+  }
+}
+
 /** Well under the 5 s a bounded scroll request waits before giving up. */
 const PROMPT_MS = 1000;
 /** A snippet of the fixture clear of every fixture annotation. */
@@ -953,17 +1022,110 @@ test("a hostile label id puts no rule on the page: the only stylesheets are the 
 
   const docx = annotatorRoot(page).locator("[data-rca-docx]");
   const scope = `[data-rca-docx="${await docx.getAttribute("data-rca-docx")}"]`;
-  const sheets = await docx.evaluate((el) =>
-    Array.from(el.querySelectorAll("style"), (style) =>
-      Array.from(style.sheet?.cssRules ?? []).map((rule) => rule.cssText)
-    )
-  );
   // The document's stylesheet and the format's, nothing projection added.
-  expect(sheets).toHaveLength(2);
-  for (const rule of sheets.flat()) {
-    expect(rule.startsWith(scope) || rule.startsWith("@media")).toBe(true);
-  }
+  await expect(docx.locator("style")).toHaveCount(2);
+  // Inside grouping rules (the document's `@media print`) too.
+  await expectAllScoped(docx, scope);
   expect(
     await page.evaluate(() => getComputedStyle(document.body).display)
   ).toBe("block");
+});
+
+/** Stylesheets crafted to break out of a scope, as a document could carry. */
+const HOSTILE_SHEETS: Record<string, string> = {
+  // An unescaped line break ends a CSS string: docxodus writes a font name
+  // as is, so one with a line break opens rules of its own.
+  "a line break in a string":
+    "p.docx-Normal { font-family: 'Evil\n} body { display: none } .z { a: ', serif; }",
+  // An unquoted url( runs on over braces and quotes.
+  "an unquoted url(": 'p{a:url(x}q{b:") } body{display:none} q2{c:"}',
+  // Selectors that would reach the scope element's siblings once prefixed.
+  "leading combinators and nesting":
+    "~ div { display: none } + div { display: none }" +
+    " body { color: blue; & ~ * { display: none } }" +
+    " :root { & + * { display: none } }" +
+    " @media all { ~ div { display: none } body { & ~ * { display: none } } }",
+};
+
+for (const [name, css] of Object.entries(HOSTILE_SHEETS)) {
+  test(`the scoper keeps a hostile stylesheet to its scope: ${name}`, async ({
+    mount,
+    page,
+  }) => {
+    await mount(<ScopedSheet css={css} scopeId="scoper-test" />);
+    const scopeElement = page.locator('[data-rca-docx="scoper-test"]');
+    await expect(scopeElement.locator("style")).toHaveCount(1);
+
+    expect(
+      await page.evaluate(() => getComputedStyle(document.body).display)
+    ).toBe("block");
+    await expectAllScoped(scopeElement, '[data-rca-docx="scoper-test"]');
+    for (const probe of ["[data-probe-sibling]", "[data-probe-z]"]) {
+      expect(
+        await page.locator(probe).evaluate((el) => getComputedStyle(el).display)
+      ).toBe("block");
+    }
+  });
+}
+
+test("a DOCX with a crafted font name puts no rule on the page", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <div>
+      <DocxHarness fixture="hostileFont" />
+      <p className="z" data-probe-z="">
+        z
+      </p>
+    </div>
+  );
+  await waitForDocumentLoad(page);
+  await expect(pages(page)).toContainText("Hello World.");
+
+  const docx = annotatorRoot(page).locator("[data-rca-docx]");
+  const scope = `[data-rca-docx="${await docx.getAttribute("data-rca-docx")}"]`;
+  await expectAllScoped(docx, scope);
+  expect(
+    await page.evaluate(() => getComputedStyle(document.body).display)
+  ).toBe("block");
+  expect(
+    await page
+      .locator("[data-probe-z]")
+      .evaluate((el) => getComputedStyle(el).display)
+  ).toBe("block");
+});
+
+test("with showStructural on, scrollToAnnotation on a structural span that gave way resolves false at once", async ({
+  mount,
+  page,
+}) => {
+  const paragraph: Annotation = {
+    id: "s-para",
+    annotationLabel: { id: "label-2", text: "Paragraph" },
+    json: { start: 0, end: 56 },
+    structural: true,
+  };
+  await mount(
+    <DocxHarness
+      annotationIds={["d-1"]}
+      extraAnnotations={[paragraph]}
+      props={{ showStructural: true }}
+    />
+  );
+  await waitForDocumentLoad(page);
+  await expect(annotationParts(page, "d-1")).toHaveCount(1);
+  await expect(annotationParts(page, "s-para")).toHaveCount(0);
+
+  const elapsed = await page.evaluate(async () => {
+    const started = performance.now();
+    const result = await window.__rca?.scrollToAnnotation("s-para", {
+      select: true,
+    });
+    return { result, ms: performance.now() - started };
+  });
+  expect(elapsed.result).toBe(false);
+  expect(elapsed.ms).toBeLessThan(PROMPT_MS);
+  // Never drawable, so not selected either.
+  expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([]);
 });

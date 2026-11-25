@@ -14,6 +14,17 @@ import type { DocxDocument } from "../loader";
 import { deferred, fakeDocxodus, flushPromises } from "./docxodusFake";
 import type { Deferred } from "./docxodusFake";
 
+// jsdom parses style sheets only in its main document (see `jsdomCss.ts`).
+vi.mock("../isolation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../isolation")>();
+  const { parseInJsdom } = await import("./jsdomCss");
+  return {
+    ...actual,
+    isolateDocument: (html: string, scope: DocxScope) =>
+      actual.isolateDocument(html, scope, parseInJsdom),
+  };
+});
+
 vi.mock("docxodus", async () =>
   (await import("./docxodusFake")).docxodusModule()
 );
@@ -161,8 +172,8 @@ test("a url source is fetched, the runtime initialised from wasmBaseUrl, and the
       '<div class="rca-s1-page-container"></div>'
   );
   expect(log.documents.at(-1)?.css).toBe(
-    '[data-rca-docx="s1"] { margin: 0 }\n' +
-      '[data-rca-docx="s1"] .rca-s1-page-box { color: red }'
+    '[data-rca-docx="s1"] { margin: 0; }\n' +
+      '[data-rca-docx="s1"] .rca-s1-page-box { color: red; }'
   );
   // `ready` is the view's to report, once the document is laid out.
   expect(states(log)).toEqual(["loading"]);

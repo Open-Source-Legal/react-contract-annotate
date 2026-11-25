@@ -12,8 +12,10 @@
  *   applies a change callback itself: a test changes them with
  *   `component.update(...)`.
  * - `fixture` picks the document: `"test"` (default; `test.docx` with its
- *   annotations) or `"landscape"` (`landscape.docx`, a different page size
- *   and style sheet, without annotations).
+ *   annotations), `"landscape"` (`landscape.docx`, a different page size
+ *   and style sheet, without annotations) or `"hostileFont"`
+ *   (`hostile-font.docx`: `test.docx` with a crafted font name, and its
+ *   text and annotations).
  * - `annotationIds` picks fixture annotations by id (default: all of them,
  *   `d-bad-span` included); `extraAnnotations` are passed after them.
  * - `props` are passed through last; callbacks in it are called after the
@@ -72,6 +74,11 @@ const FIXTURES = {
     docx: "/fixtures/docx/landscape.docx",
     text: "/fixtures/docx/landscape.txt",
     annotations: null,
+  },
+  hostileFont: {
+    docx: "/fixtures/docx/hostile-font.docx",
+    text: "/fixtures/docx/text.txt",
+    annotations: "/fixtures/docx/annotations.json",
   },
 } as const;
 

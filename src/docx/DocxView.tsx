@@ -56,10 +56,7 @@
  * once landed, instead of `scrollIntoView` on every selection change.
  */
 import { AnnotationLabelMode, projectAnnotationsOntoHtml } from "docxodus";
-import type {
-  ExternalAnnotationProjectionSettings,
-  ExternalAnnotationSet,
-} from "docxodus";
+import type { ExternalAnnotationProjectionSettings } from "docxodus";
 import { PaginatedDocument } from "docxodus/react";
 import {
   useCallback,
@@ -113,12 +110,16 @@ import type { DocxScope } from "./isolation";
 import type { DocxDocument } from "./loader";
 import { sanitizeProjectedHtml } from "./loader";
 import {
-  buildProjectionSet,
+  buildProjection,
   entryKind,
   suppressedTargets,
   withoutIndentation,
 } from "./projection";
-import type { EntryKind, TargetIds } from "./projection";
+import type {
+  EntryKind,
+  Projection as ProjectionPlan,
+  TargetIds,
+} from "./projection";
 import { buildDocxCss } from "./styles";
 import { selectedSpan, selectionIn } from "./textSelection";
 
@@ -209,11 +210,11 @@ function uniqueLabels(
   return [...byId.values()];
 }
 
-/** One projection of one document, and the set it was made from. */
+/** One projection of one document, and what it was made from. */
 type Projection = {
   docx: DocxDocument;
   html: string;
-  set: ExternalAnnotationSet;
+  plan: ProjectionPlan;
   key: string;
 };
 
@@ -262,9 +263,9 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   const pendingOffsets = pendingSpan(pending?.json);
   const pendingStart = pendingOffsets?.start;
   const pendingEnd = pendingOffsets?.end;
-  const projectionSet = useMemo(
+  const projectionPlan = useMemo(
     () =>
-      buildProjectionSet({
+      buildProjection({
         text,
         annotations: visible,
         highlights,
@@ -278,12 +279,16 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   );
   const projectionKey = useMemo(
     () =>
-      JSON.stringify([projectionSet.labelledText, projectionSet.textLabels]),
-    [projectionSet]
+      JSON.stringify([
+        projectionPlan.set.labelledText,
+        projectionPlan.set.textLabels,
+        [...projectionPlan.gaveWay],
+      ]),
+    [projectionPlan]
   );
-  const latestSet = useRef(projectionSet);
+  const latestPlan = useRef(projectionPlan);
   useLayoutEffect(() => {
-    latestSet.current = projectionSet;
+    latestPlan.current = projectionPlan;
   });
 
   /** Whether the primary button is down after a press in the document. */
@@ -293,19 +298,19 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   useEffect(() => {
     if (docx === null || pressed) return;
     let cancelled = false;
-    const set = latestSet.current;
+    const plan = latestPlan.current;
     const key = projectionKey;
     const show = (html: string) =>
       setProjection((prev) =>
         prev?.docx === docx && prev.html === html && prev.key === key
           ? prev
-          : { docx, html, set, key }
+          : { docx, html, plan, key }
       );
-    if (set.labelledText.length === 0) {
+    if (plan.set.labelledText.length === 0) {
       show(docx.html);
       return;
     }
-    projectAnnotationsOntoHtml(docx.html, set, PROJECTION_SETTINGS)
+    projectAnnotationsOntoHtml(docx.html, plan.set, PROJECTION_SETTINGS)
       .then((html) => {
         if (!cancelled) show(sanitizeProjectedHtml(withoutIndentation(html)));
       })
@@ -347,7 +352,7 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
     const pages = pagesOf();
     if (!rendered || !pages) return;
     suppressedRef.current = suppressedTargets(
-      shown.set,
+      shown.plan,
       projectedElements(pages).map((element) => ({
         id: element.getAttribute("data-annotation-id") ?? "",
         labelId: element.getAttribute("data-label-id"),

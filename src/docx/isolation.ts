@@ -9,12 +9,19 @@
  *   of the class prefixes docxodus is asked to use for the document's classes
  *   and the pagination elements, so they are the annotator's own.
  * - The document's `<style>` blocks are taken out of its HTML and rewritten
- *   under the scope (`scopeStylesheet`): each selector is prefixed with the
- *   scope's element, and `html`, `body` and `:root` stand for that element.
- *   Rules inside `@media` / `@supports` are rewritten the same way. Every
- *   other at-rule is dropped: `@page`, `@font-face`, `@keyframes`, `@layer`,
- *   `@property` and `@import` act on the whole page by name or position. The
- *   declarations are kept as written.
+ *   under the scope (`scopeStylesheet`). The CSS is parsed by the browser's
+ *   own parser (in a detached document) and written back only from the
+ *   parsed rules: nothing of the input text is copied through, so a crafted
+ *   document (a font name with a line break in it, an unquoted `url(`)
+ *   cannot open a rule of its own. Each style rule's selectors
+ *   (`selectorText`) are put under the scope element, and `html`, `body`
+ *   and `:root` stand for that element; a selector that starts with a
+ *   combinator or uses `&`, and a rule with nested rules, are dropped. Its
+ *   declarations are the parser's (`style.cssText`). Rules inside `@media`,
+ *   `@supports` and `@container` are rewritten the same way, under the
+ *   parsed condition. Every other at-rule is dropped: `@page`,
+ *   `@font-face`, `@keyframes`, `@layer`, `@property`, `@namespace` and
+ *   `@import` act on the whole page by name or position.
  * - Element ids are prefixed with the scope, and same-document links
  *   (`href="#…"`) follow them. The ids `PaginatedDocument` gives its
  *   staging and page containers are removed (it finds them by class).
@@ -73,78 +80,93 @@ export function pageClass(
 // ---------------------------------------------------------------------------
 
 /**
- * Index just past the string, comment or escape starting at `at`, or `at`
- * when none starts there.
+ * Parses a stylesheet with the browser's own CSS parser into its top-level
+ * rules; null when the environment cannot.
  */
-function skipToken(css: string, at: number): number {
-  const char = css[at];
-  if (char === "\\") return Math.min(at + 2, css.length);
-  if (char === "/" && css[at + 1] === "*") {
-    const close = css.indexOf("*/", at + 2);
-    return close < 0 ? css.length : close + 2;
-  }
-  if (char === '"' || char === "'") {
-    let i = at + 1;
-    while (i < css.length && css[i] !== char) {
-      i += css[i] === "\\" ? 2 : 1;
-    }
-    return Math.min(i + 1, css.length);
-  }
-  return at;
-}
+export type CssParser = (css: string) => ArrayLike<CSSRule> | null;
 
-/** `text` without its comments. */
-function withoutComments(text: string): string {
-  let out = "";
-  for (let i = 0; i < text.length;) {
-    const next = skipToken(text, i);
-    if (next > i) {
-      if (!text.startsWith("/*", i)) out += text.slice(i, next);
-      i = next;
-    } else {
-      out += text[i++];
-    }
-  }
-  return out;
+/**
+ * Parses `css` in a `<style>` of a detached document: never applied to any
+ * page. (A constructable `CSSStyleSheet` would do too, but `replaceSync`
+ * warns on the console about any `@import` in its input.)
+ */
+export const parseInDetachedDocument: CssParser = (css) => {
+  const detached = document.implementation.createHTMLDocument("");
+  const style = detached.createElement("style");
+  style.textContent = css;
+  detached.head.append(style);
+  return style.sheet ? Array.from(style.sheet.cssRules) : null;
+};
+
+type RuleConstructor =
+  "CSSStyleRule" | "CSSMediaRule" | "CSSSupportsRule" | "CSSContainerRule";
+
+/** Whether `rule` is one of the window's `name` rules (none if it has none). */
+function ruleIs<T extends CSSRule>(
+  rule: CSSRule,
+  name: RuleConstructor
+): rule is T {
+  const constructor = (globalThis as Record<string, unknown>)[name];
+  return typeof constructor === "function" && rule instanceof constructor;
 }
 
 /**
- * Splits `text` at the top-level occurrences of `separator` (outside
- * strings, comments, parentheses and brackets).
+ * Splits a parser-normalised selector list at its top-level commas
+ * (outside parentheses, brackets, strings and escapes); null when the text
+ * is not balanced.
  */
-function splitTopLevel(text: string, separator: string): string[] {
+function splitSelectorList(list: string): string[] | null {
   const parts: string[] = [];
   let depth = 0;
+  let quote: string | null = null;
   let from = 0;
-  for (let i = 0; i < text.length;) {
-    const next = skipToken(text, i);
-    if (next > i) {
-      i = next;
-      continue;
-    }
-    const char = text[i];
-    if (char === "(" || char === "[") depth++;
-    else if ((char === ")" || char === "]") && depth > 0) depth--;
-    else if (char === separator && depth === 0) {
-      parts.push(text.slice(from, i));
+  for (let i = 0; i < list.length; i++) {
+    const char = list[i];
+    if (char === "\\") {
+      i++;
+    } else if (quote !== null) {
+      if (char === quote) quote = null;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "(" || char === "[") {
+      depth++;
+    } else if (char === ")" || char === "]") {
+      if (--depth < 0) return null;
+    } else if (char === "," && depth === 0) {
+      parts.push(list.slice(from, i));
       from = i + 1;
     }
-    i++;
   }
-  parts.push(text.slice(from));
+  if (quote !== null || depth !== 0) return null;
+  parts.push(list.slice(from));
   return parts;
+}
+
+/** Whether a selector uses the nesting selector `&` (outside strings). */
+function usesNesting(selector: string): boolean {
+  let quote: string | null = null;
+  for (let i = 0; i < selector.length; i++) {
+    const char = selector[i];
+    if (char === "\\") i++;
+    else if (quote !== null) {
+      if (char === quote) quote = null;
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === "&") return true;
+  }
+  return false;
 }
 
 /** A leading `html`, `body` or `:root` compound, with what follows it. */
 const ROOT_COMPOUND = /^(?:html|body|:root)(?=$|[\s>+~])\s*/i;
 
 /**
- * One complex selector under `scope`, or null when it can only match outside
- * the scope (a sibling of `body`).
+ * One parser-normalised complex selector under `scope`: the scope element
+ * itself, or something inside it. Null when it could match anything else:
+ * one that starts with a combinator or uses `&`, or a sibling of `body`.
  */
 function scopeSelector(selector: string, scope: string): string | null {
   let rest = selector.trim();
-  if (rest === "") return null;
+  if (rest === "" || /^[>+~@]/.test(rest) || usesNesting(rest)) return null;
   let rooted = false;
   for (;;) {
     const match = ROOT_COMPOUND.exec(rest);
@@ -162,76 +184,61 @@ function scopeSelector(selector: string, scope: string): string | null {
   return `${scope} ${rest}`;
 }
 
-/** A selector list under `scope`; null when none of it can stay. */
+/**
+ * A parser-normalised selector list under `scope`; null when none of it can
+ * stay, or when the list cannot be split with confidence.
+ */
 export function scopeSelectorList(list: string, scope: string): string | null {
-  const scoped = splitTopLevel(withoutComments(list), ",").flatMap(
-    (selector) => {
-      const result = scopeSelector(selector, scope);
-      return result === null ? [] : [result];
-    }
-  );
+  const selectors = splitSelectorList(list);
+  if (selectors === null) return null;
+  const scoped = selectors.flatMap((selector) => {
+    const result = scopeSelector(selector, scope);
+    return result === null ? [] : [result];
+  });
   return scoped.length > 0 ? scoped.join(", ") : null;
 }
 
-/** At-rules whose rules are rewritten; every other at-rule is dropped. */
-const GROUPING_AT_RULE = /^@(?:media|supports)\b/i;
-
-/** The top-level rules of `css`: a prelude, and a block when it has one. */
-function topLevelRules(
-  css: string
-): { prelude: string; block: string | null }[] {
-  const rules: { prelude: string; block: string | null }[] = [];
-  let from = 0;
-  let depth = 0;
-  let blockStart = -1;
-  for (let i = 0; i < css.length;) {
-    const next = skipToken(css, i);
-    if (next > i) {
-      i = next;
+/** The kept rules of `rules`, scoped, serialised from their parsed parts. */
+function scopeRules(rules: ArrayLike<CSSRule>, scope: string): string[] {
+  const out: string[] = [];
+  for (const rule of Array.from(rules)) {
+    if (ruleIs<CSSStyleRule>(rule, "CSSStyleRule")) {
+      // Nested rules (CSS nesting) would be relative to this one's selector.
+      if ((rule.cssRules?.length ?? 0) > 0) continue;
+      const declarations = rule.style.cssText;
+      const selectors = scopeSelectorList(rule.selectorText, scope);
+      if (selectors !== null && declarations !== "") {
+        out.push(`${selectors} { ${declarations} }`);
+      }
       continue;
     }
-    const char = css[i];
-    if (char === "{") {
-      if (depth === 0) blockStart = i;
-      depth++;
-    } else if (char === "}" && depth > 0) {
-      depth--;
-      if (depth === 0) {
-        rules.push({
-          prelude: css.slice(from, blockStart),
-          block: css.slice(blockStart + 1, i),
-        });
-        from = i + 1;
-      }
-    } else if (char === ";" && depth === 0) {
-      rules.push({ prelude: css.slice(from, i), block: null });
-      from = i + 1;
+    let condition: string | null = null;
+    if (ruleIs<CSSMediaRule>(rule, "CSSMediaRule")) {
+      condition = `@media ${rule.media.mediaText}`;
+    } else if (ruleIs<CSSSupportsRule>(rule, "CSSSupportsRule")) {
+      condition = `@supports ${rule.conditionText}`;
+    } else if (ruleIs<CSSConditionRule>(rule, "CSSContainerRule")) {
+      condition = `@container ${rule.conditionText}`;
     }
-    i++;
+    if (condition === null) continue; // every other at-rule
+    const inner = scopeRules((rule as CSSGroupingRule).cssRules, scope);
+    if (inner.length > 0) out.push(`${condition} {\n${inner.join("\n")}\n}`);
   }
-  // An unterminated rule at the end is dropped, as a browser would.
-  return rules;
+  return out;
 }
 
 /**
- * `css` with every rule scoped to `scope` (a selector): see the module
- * comment. Comments are dropped.
+ * `css` scoped to `scope` (a selector): parsed by `parse` (the browser's own
+ * parser) and written back from the parsed rules only. Empty when it cannot
+ * be parsed.
  */
-export function scopeStylesheet(css: string, scope: string): string {
-  const out: string[] = [];
-  for (const { prelude, block } of topLevelRules(css)) {
-    const head = withoutComments(prelude).trim();
-    if (block === null || head === "") continue;
-    if (head.startsWith("@")) {
-      if (GROUPING_AT_RULE.test(head)) {
-        out.push(`${head} {\n${scopeStylesheet(block, scope)}\n}`);
-      }
-      continue;
-    }
-    const selectors = scopeSelectorList(head, scope);
-    if (selectors !== null) out.push(`${selectors} {${block}}`);
-  }
-  return out.join("\n");
+export function scopeStylesheet(
+  css: string,
+  scope: string,
+  parse: CssParser = parseInDetachedDocument
+): string {
+  const rules = parse(css);
+  return rules === null ? "" : scopeRules(rules, scope).join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +254,8 @@ const PAGINATION_IDS = new Set(["pagination-staging", "pagination-container"]);
  */
 export function isolateDocument(
   html: string,
-  scope: DocxScope
+  scope: DocxScope,
+  parse: CssParser = parseInDetachedDocument
 ): { html: string; css: string } {
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -255,8 +263,10 @@ export function isolateDocument(
 
   const css = Array.from(content.querySelectorAll("style"), (style) => {
     style.remove();
-    return scopeStylesheet(style.textContent ?? "", scope.selector);
-  }).join("\n");
+    return scopeStylesheet(style.textContent ?? "", scope.selector, parse);
+  })
+    .filter((sheet) => sheet !== "")
+    .join("\n");
 
   for (const element of Array.from(content.querySelectorAll("[id]"))) {
     if (PAGINATION_IDS.has(element.id)) element.removeAttribute("id");

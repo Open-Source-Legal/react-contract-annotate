@@ -15,6 +15,7 @@ import {
   PENDING_LABEL_ID,
 } from "../constants";
 import {
+  buildProjection,
   buildProjectionSet,
   isDrawableSpan,
   suppressedTargets,
@@ -86,19 +87,24 @@ function spanHighlight(id: string, start: number, end: number): Highlight {
   return { id, target: { kind: "span", start, end } };
 }
 
-function project({
-  annotations = [] as InternalAnnotation[],
-  highlights = [] as Highlight[],
-  activeHighlightId = null as string | null,
-  pending = null as { start: number; end: number } | null,
-} = {}) {
-  return buildProjectionSet({
-    text: TEXT,
-    annotations,
-    highlights,
-    activeHighlightId,
-    pending,
-  });
+type Input = {
+  annotations?: InternalAnnotation[];
+  highlights?: Highlight[];
+  activeHighlightId?: string | null;
+  pending?: { start: number; end: number } | null;
+};
+
+function input({
+  annotations = [],
+  highlights = [],
+  activeHighlightId = null,
+  pending = null,
+}: Input) {
+  return { text: TEXT, annotations, highlights, activeHighlightId, pending };
+}
+
+function project(options: Input = {}) {
+  return buildProjectionSet(input(options));
 }
 
 const ids = (set: ReturnType<typeof project>) =>
@@ -372,19 +378,43 @@ describe("overlap rule: structural spans give way", () => {
 });
 
 test("suppressedTargets: entries the laid-out document has no element for, by kind", () => {
-  const set = project({
-    annotations: [span("d-1", 0, 11), span("same", 5, 20)],
-    highlights: [
-      spanHighlight("same", 30, 34),
-      spanHighlight("h-gone", 40, 44),
-    ],
-    pending: { start: 50, end: 54 },
-  });
-  const suppressed = suppressedTargets(set, [
+  const projection = buildProjection(
+    input({
+      annotations: [span("d-1", 0, 11), span("same", 5, 20)],
+      highlights: [
+        spanHighlight("same", 30, 34),
+        spanHighlight("h-gone", 40, 44),
+      ],
+      pending: { start: 50, end: 54 },
+    })
+  );
+  const suppressed = suppressedTargets(projection, [
     { id: "d-1", labelId: "label-1" },
     // A highlight's element does not stand for the annotation with its id.
     { id: "same", labelId: HIGHLIGHT_LABEL_ID },
   ]);
   expect([...suppressed.annotation]).toEqual(["same"]);
   expect([...suppressed.highlight]).toEqual(["h-gone"]);
+});
+
+test("a structural span that gave way is reported as not drawn", () => {
+  const projection = buildProjection(
+    input({
+      annotations: [
+        span("s-para", 0, 56, { structural: true }),
+        span("d-1", 0, 11),
+        span("s-alone", 57, 126, { structural: true }),
+      ],
+    })
+  );
+  expect([...projection.gaveWay]).toEqual(["s-para"]);
+  expect(projection.set.labelledText.map((entry) => entry.id)).toEqual([
+    "d-1",
+    "s-alone",
+  ]);
+  const suppressed = suppressedTargets(projection, [
+    { id: "d-1", labelId: "label-1" },
+    { id: "s-alone", labelId: "label-1" },
+  ]);
+  expect([...suppressed.annotation]).toEqual(["s-para"]);
 });
