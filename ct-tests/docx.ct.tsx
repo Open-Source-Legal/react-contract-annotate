@@ -1674,6 +1674,60 @@ test("a stylesheet the browser reads back differently is dropped; the document a
   ).not.toContain("Cambria");
 });
 
+/**
+ * Stylesheets nested deeper than Chromium's CSS parser survives (the page
+ * crashes when one is parsed), each with more `{` or `(` than a block of
+ * document CSS may hold.
+ */
+const DEEP_SHEETS: Record<string, string> = {
+  "50,000 nested @media blocks":
+    "@media all {".repeat(50000) + " p { color: red } " + "}".repeat(50000),
+  "5,000 nested style rules": "a{".repeat(5000),
+  "50,000 nested parentheses in a media condition":
+    "@media " + "(".repeat(50000),
+  "20,000 nested :is()":
+    ":is(".repeat(20000) + "p" + ")".repeat(20000) + " { color: red }",
+  "50,000 nested var() fallbacks":
+    "p { color: " + "var(--a,".repeat(50000) + "red" + ")".repeat(50000) + " }",
+};
+
+for (const [name, css] of Object.entries(DEEP_SHEETS)) {
+  test(`isolation does not parse CSS nested too deep, and the document renders: ${name}`, async ({
+    mount,
+    page,
+  }) => {
+    const requested = await recordInvalidRequests(page);
+    let crashed = false;
+    page.on("crash", () => {
+      crashed = true;
+    });
+    // Straight to `isolateDocument`: see the wrapper.
+    await mount(
+      <IsolatedHtml
+        sanitize={false}
+        html={
+          `<style>${css}</style>` +
+          "<style>p { color: rgb(1, 2, 3) }</style>" +
+          '<p data-case="doc">doc</p>'
+        }
+      />
+    );
+    const scopeElement = page.locator("[data-rca-docx]");
+    await expect(scopeElement.locator("p")).toHaveText("doc");
+    expect(crashed).toBe(false);
+    // The whole document stylesheet is dropped, as one rejected.
+    await expect(scopeElement).toHaveAttribute("data-css-rejected", "true");
+    expect(await scopeElement.locator("style").textContent()).toBe("");
+    expect(
+      await scopeElement
+        .locator("p")
+        .evaluate((el) => getComputedStyle(el).color)
+    ).not.toBe("rgb(1, 2, 3)");
+    expect(await bodyDisplay(page)).toBe("block");
+    expect(requested.filter((path) => path !== "/control")).toEqual([]);
+  });
+}
+
 /** The page-scale property docxodus declares and nothing reads. */
 const PAGE_SCALE = "--rca-parity-page-scale: 1.00";
 

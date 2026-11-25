@@ -66,10 +66,11 @@ const SANITIZE_CONFIG: Config = {
 };
 
 const REJECTED_STYLESHEET_WARNING =
-  "The DOCX annotator dropped the document's own stylesheet: once scoped to " +
-  "the annotator and reduced to the declarations it allows, it did not " +
-  "parse back to exactly those rules (a crafted or malformed document). " +
-  "The document is shown without it.";
+  "The DOCX annotator dropped the document's own stylesheet: it holds too " +
+  "many `{` or `(` to be parsed safely, or, once scoped to the annotator " +
+  "and reduced to the declarations it allows, it did not parse back to " +
+  "exactly those rules (a crafted or malformed document). The document is " +
+  "shown without it.";
 
 /** Converted docxodus HTML, sanitised (see `SANITIZE_CONFIG`). */
 export function sanitizeDocxHtml(html: string): string {

@@ -7,6 +7,9 @@
  * `[data-control]`, has an inline background image at
  * `https://example.invalid/control`, so a test can tell its request
  * interception works.
+ *
+ * `sanitize={false}` leaves `sanitizeDocxHtml` out: `html` goes to
+ * `isolateDocument` as it is, for what must hold of that step alone.
  */
 import { useState } from "react";
 
@@ -19,9 +22,18 @@ const CONTROL_STYLE = {
   height: 10,
 };
 
-export function IsolatedHtml({ html }: { html: string }) {
+export function IsolatedHtml({
+  html,
+  sanitize = true,
+}: {
+  html: string;
+  sanitize?: boolean;
+}) {
   const [scope] = useState(createDocxScope);
-  const isolated = isolateDocument(sanitizeDocxHtml(html), scope);
+  const isolated = isolateDocument(
+    sanitize ? sanitizeDocxHtml(html) : html,
+    scope
+  );
   return (
     <div>
       <div

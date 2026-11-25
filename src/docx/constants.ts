@@ -71,3 +71,24 @@ export const PENDING_ENTRY_ID = "__pending__";
  * OpenContracts' `SelectionLayer` literal).
  */
 export const PENDING_COLOR = "#0066cc";
+
+/**
+ * The most `{`, and the most `(`, the text of a document's `<style>` block
+ * may hold: one holding more is dropped without being handed to the CSS
+ * parser by `scopeStylesheet.ts` (which says what this does not cover).
+ *
+ * Why: every level of nesting a CSS parser can be driven into costs one of
+ * those two characters, so their count bounds the depth without reading the
+ * text as CSS, and Chromium's parser overflows its stack (the page crashes)
+ * on deep nesting. Measured on Chromium 151, Linux x64, as the first depth
+ * that crashes after the last that parses: nested style rules and `@scope`
+ * about 4,800 (4,788 parses); `@layer`, `@starting-style` and `:is()`
+ * between 10,000 and 20,000; `@media`, `@supports` and `@container` blocks,
+ * their parenthesised conditions, and `var()` / `env()` fallbacks between
+ * 20,000 and 50,000. The stack is smaller on other platforms, which were
+ * not measured.
+ *
+ * For scale, docxodus writes one `{` per rule and about two `(` per run
+ * style: 105 and 52 for a document exercising most formatting.
+ */
+export const MAX_CSS_NESTING_OPENERS = 4096;
