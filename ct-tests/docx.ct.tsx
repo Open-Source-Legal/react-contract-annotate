@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 
 import { DocxHarness } from "./wrappers/DocxHarness";
+import { IsolatedHtml } from "./wrappers/IsolatedHtml";
 import { ScopedSheet } from "./wrappers/ScopedSheet";
 
 import type { Annotation, AnnotationLabel, Highlight } from "../src/core/index";
@@ -34,71 +35,77 @@ const CLAUSE_LABEL: AnnotationLabel = {
 /** The colour of a selected annotation's outline. */
 const SELECTED_OUTLINE = "rgb(59, 130, 246)";
 /**
- * Every rule of every stylesheet under `scopeElement`, rules inside grouping
- * rules included: the selectors of a style rule (split at its top-level
- * commas) and how many nested rules it has, or the kind of any other rule.
+ * What the stylesheets under `scopeElement` can reach, rules inside grouping
+ * rules included, checked by the browser rather than by reading selectors:
+ * each style rule's selector (pseudo-elements left out) is matched against
+ * the whole page with `querySelectorAll`. Reports the matches outside the
+ * scope element, the selectors that could not be matched, the kinds of rule
+ * other than style rules and `@media` / `@supports` / `@container`, and the
+ * style rules with nested rules.
  */
-function insertedRules(
-  scopeElement: Locator
-): Promise<{ kind: string; selectors: string[]; nested: number }[]> {
-  return scopeElement.evaluate((el) => {
-    const split = (list: string) => {
-      const parts: string[] = [];
-      let depth = 0;
-      let quote = "";
-      let from = 0;
-      for (let i = 0; i < list.length; i++) {
-        const char = list[i];
-        if (char === "\\") i++;
-        else if (quote) {
-          if (char === quote) quote = "";
-        } else if (char === '"' || char === "'") quote = char;
-        else if (char === "(" || char === "[") depth++;
-        else if (char === ")" || char === "]") depth--;
-        else if (char === "," && depth === 0) {
-          parts.push(list.slice(from, i).trim());
-          from = i + 1;
-        }
-      }
-      parts.push(list.slice(from).trim());
-      return parts;
+function reachOfInsertedRules(scopeElement: Locator): Promise<{
+  styleRules: number;
+  outside: string[];
+  unmatchable: string[];
+  otherKinds: string[];
+  nested: string[];
+}> {
+  return scopeElement.evaluate((scope) => {
+    const report = {
+      styleRules: 0,
+      outside: [] as string[],
+      unmatchable: [] as string[],
+      otherKinds: [] as string[],
+      nested: [] as string[],
     };
-    const out: { kind: string; selectors: string[]; nested: number }[] = [];
+    const PSEUDO_ELEMENT =
+      /::?(?:before|after|first-line|first-letter|marker|placeholder|selection|backdrop)\b/gi;
     const walk = (rules: CSSRuleList) => {
       for (const rule of Array.from(rules)) {
         if (rule instanceof CSSStyleRule) {
-          out.push({
-            kind: "style",
-            selectors: split(rule.selectorText),
-            nested: rule.cssRules.length,
-          });
-        } else if (rule instanceof CSSGroupingRule) {
+          report.styleRules++;
+          if (rule.cssRules.length > 0) report.nested.push(rule.selectorText);
+          const selector = rule.selectorText.replace(PSEUDO_ELEMENT, "");
+          try {
+            for (const match of Array.from(
+              document.querySelectorAll(selector)
+            )) {
+              if (!scope.contains(match)) {
+                report.outside.push(`${rule.selectorText} -> ${match.tagName}`);
+              }
+            }
+          } catch {
+            report.unmatchable.push(rule.selectorText);
+          }
+        } else if (
+          rule instanceof CSSMediaRule ||
+          rule instanceof CSSSupportsRule ||
+          (typeof CSSContainerRule !== "undefined" &&
+            rule instanceof CSSContainerRule)
+        ) {
           walk(rule.cssRules);
         } else {
-          out.push({ kind: rule.constructor.name, selectors: [], nested: 0 });
+          report.otherKinds.push(rule.constructor.name);
         }
       }
     };
-    for (const style of Array.from(el.querySelectorAll("style"))) {
+    for (const style of Array.from(scope.querySelectorAll("style"))) {
       if (style.sheet) walk(style.sheet.cssRules);
     }
-    return out;
+    return report;
   });
 }
 
-/** Expects every inserted rule to be a style rule scoped to `scope`. */
-async function expectAllScoped(
-  scopeElement: Locator,
-  scope: string
-): Promise<void> {
-  const rules = await insertedRules(scopeElement);
-  for (const rule of rules) {
-    expect(rule.kind).toBe("style");
-    expect(rule.nested).toBe(0);
-    for (const selector of rule.selectors) {
-      expect(selector === scope || selector.startsWith(`${scope} `)).toBe(true);
-    }
-  }
+/**
+ * Expects nothing the stylesheets under `scopeElement` hold to reach outside
+ * it (see `reachOfInsertedRules`).
+ */
+async function expectAllScoped(scopeElement: Locator): Promise<void> {
+  const reach = await reachOfInsertedRules(scopeElement);
+  expect(reach.outside).toEqual([]);
+  expect(reach.unmatchable).toEqual([]);
+  expect(reach.otherKinds).toEqual([]);
+  expect(reach.nested).toEqual([]);
 }
 
 /** Well under the 5 s a bounded scroll request waits before giving up. */
@@ -1021,11 +1028,10 @@ test("a hostile label id puts no rule on the page: the only stylesheets are the 
   await expect(annotationParts(page, "d-hostile")).toHaveText(["sample"]);
 
   const docx = annotatorRoot(page).locator("[data-rca-docx]");
-  const scope = `[data-rca-docx="${await docx.getAttribute("data-rca-docx")}"]`;
   // The document's stylesheet and the format's, nothing projection added.
   await expect(docx.locator("style")).toHaveCount(2);
   // Inside grouping rules (the document's `@media print`) too.
-  await expectAllScoped(docx, scope);
+  await expectAllScoped(docx);
   expect(
     await page.evaluate(() => getComputedStyle(document.body).display)
   ).toBe("block");
@@ -1039,6 +1045,22 @@ const HOSTILE_SHEETS: Record<string, string> = {
     "p.docx-Normal { font-family: 'Evil\n} body { display: none } .z { a: ', serif; }",
   // An unquoted url( runs on over braces and quotes.
   "an unquoted url(": 'p{a:url(x}q{b:") } body{display:none} q2{c:"}',
+  // Chromium writes a custom property's value back as its source text,
+  // unterminated string or url( and all, and moves !important ones last.
+  "an unterminated string in a custom property":
+    'p { --y: ")} body{display:none} q{" !important; --x: "abc',
+  "an unterminated url( in a custom property":
+    'p { --y: ")} body{display:none} q{" !important; --x: url(abc',
+  "a custom property inside @media":
+    '@media all { p { --y: ")} body{display:none} q{" !important; --x: "abc',
+  "a custom property inside @supports":
+    '@supports (color: red) { p { --y: ")} body{display:none} q{" !important; --x: "abc',
+  // The one custom property a document keeps must hold a number.
+  "the kept custom property with a string":
+    'p { --docx-auto-line-spacing: ")} body{display:none} q{" !important; --docx-auto-line-spacing: "abc',
+  // A value holding var() is also written back as its source text.
+  "an unterminated string in a value holding var()":
+    'p { color: var(--a, ")} body{display:none} q{") !important; background: var(--b, "abc',
   // Selectors that would reach the scope element's siblings once prefixed.
   "leading combinators and nesting":
     "~ div { display: none } + div { display: none }" +
@@ -1059,7 +1081,7 @@ for (const [name, css] of Object.entries(HOSTILE_SHEETS)) {
     expect(
       await page.evaluate(() => getComputedStyle(document.body).display)
     ).toBe("block");
-    await expectAllScoped(scopeElement, '[data-rca-docx="scoper-test"]');
+    await expectAllScoped(scopeElement);
     for (const probe of ["[data-probe-sibling]", "[data-probe-z]"]) {
       expect(
         await page.locator(probe).evaluate((el) => getComputedStyle(el).display)
@@ -1084,8 +1106,7 @@ test("a DOCX with a crafted font name puts no rule on the page", async ({
   await expect(pages(page)).toContainText("Hello World.");
 
   const docx = annotatorRoot(page).locator("[data-rca-docx]");
-  const scope = `[data-rca-docx="${await docx.getAttribute("data-rca-docx")}"]`;
-  await expectAllScoped(docx, scope);
+  await expectAllScoped(docx);
   expect(
     await page.evaluate(() => getComputedStyle(document.body).display)
   ).toBe("block");
@@ -1128,4 +1149,114 @@ test("with showStructural on, scrollToAnnotation on a structural span that gave 
   expect(elapsed.ms).toBeLessThan(PROMPT_MS);
   // Never drawable, so not selected either.
   expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([]);
+});
+
+test("the scoper keeps @supports and @container rules, scoped, and they apply inside", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <ScopedSheet
+      css={
+        "body { container-type: inline-size }" +
+        " @supports (display: grid) { p { color: rgb(1, 2, 3) } }" +
+        " @container (min-width: 1px) { p { background-color: rgb(4, 5, 6) } }"
+      }
+      scopeId="scoper-test"
+    />
+  );
+  const scopeElement = page.locator('[data-rca-docx="scoper-test"]');
+  await expectAllScoped(scopeElement);
+  const kinds = await scopeElement.evaluate((el) =>
+    Array.from(
+      el.querySelector("style")?.sheet?.cssRules ?? [],
+      (rule) => rule.constructor.name
+    )
+  );
+  expect(kinds).toEqual([
+    "CSSStyleRule",
+    "CSSSupportsRule",
+    "CSSContainerRule",
+  ]);
+
+  const colours = (selector: string) =>
+    page.locator(selector).evaluate((el) => {
+      const style = getComputedStyle(el);
+      return [style.color, style.backgroundColor];
+    });
+  expect(await colours('[data-rca-docx="scoper-test"] p')).toEqual([
+    "rgb(1, 2, 3)",
+    "rgb(4, 5, 6)",
+  ]);
+  // The `p` outside keeps its own.
+  expect(await colours("[data-probe-z]")).not.toContain("rgb(1, 2, 3)");
+  expect(await colours("[data-probe-z]")).not.toContain("rgb(4, 5, 6)");
+});
+
+test("a document styled to cover the whole page stays inside its viewer", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <div>
+      <DocxHarness fixture="hostileOverlay" />
+      <div
+        data-probe-overlay=""
+        style={{
+          position: "absolute",
+          left: 1000,
+          top: 100,
+          width: 100,
+          height: 100,
+        }}
+      />
+    </div>
+  );
+  await waitForDocumentLoad(page);
+  const docx = annotatorRoot(page).locator("[data-rca-docx]");
+  await expectAllScoped(docx);
+  // The document did style its own element so (the rule was kept)...
+  expect(
+    await docx.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return [style.position, style.zIndex];
+    })
+  ).toEqual(["fixed", "2147483647"]);
+  // ...and it covers nothing of the host's: the probe is what is there.
+  expect(
+    await page.locator("[data-probe-overlay]").evaluate((probe) => {
+      const { left, top, width, height } = probe.getBoundingClientRect();
+      return (
+        document.elementFromPoint(left + width / 2, top + height / 2) === probe
+      );
+    })
+  ).toBe(true);
+});
+
+test("document CSS and inline styles fetch nothing", async ({
+  mount,
+  page,
+}) => {
+  const requested: string[] = [];
+  await page.route("**/example.invalid/**", async (route) => {
+    requested.push(new URL(route.request().url()).pathname);
+    // An empty answer: nothing fails on the console.
+    await route.fulfill({ status: 200, contentType: "image/gif", body: "" });
+  });
+  await mount(
+    <IsolatedHtml
+      html={
+        "<style>" +
+        '[data-annotation-id="d-1"] { background: url(https://example.invalid/leak) }' +
+        ' p { background-image: url("https://example.invalid/leak2") }' +
+        "</style>" +
+        '<span data-annotation-id="d-1" style="background:url(https://example.invalid/x)">x</span>' +
+        "<p>p</p>"
+      }
+    />
+  );
+  // The control outside, fetched as usual, shows the interception works.
+  await expect.poll(() => requested).toContain("/control");
+  await page.waitForTimeout(SETTLE_MS);
+  expect(requested).toEqual(["/control"]);
 });

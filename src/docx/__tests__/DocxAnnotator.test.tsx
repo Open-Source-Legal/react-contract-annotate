@@ -13,6 +13,9 @@ import { DocxAnnotator } from "../index";
 import type { DocxScope } from "../isolation";
 import { fakeDocxodus, flushPromises } from "./docxodusFake";
 
+/** When true, the check of a scoped stylesheet sees an extra rule. */
+const parsing = vi.hoisted(() => ({ tamper: false }));
+
 // jsdom parses style sheets only in its main document (see `jsdomCss.ts`).
 vi.mock("../isolation", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../isolation")>();
@@ -20,7 +23,13 @@ vi.mock("../isolation", async (importOriginal) => {
   return {
     ...actual,
     isolateDocument: (html: string, scope: DocxScope) =>
-      actual.isolateDocument(html, scope, parseInJsdom),
+      actual.isolateDocument(html, scope, (css) =>
+        parseInJsdom(
+          parsing.tamper && css.includes(scope.selector)
+            ? `${css} body { display: none }`
+            : css
+        )
+      ),
   };
 });
 
@@ -61,6 +70,7 @@ const BAD = span("d-bad-span", 10_000_000, 10_000_010);
 let warn: MockInstance<typeof console.warn>;
 
 beforeEach(() => {
+  parsing.tamper = false;
   fakeDocxodus.reset();
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -371,4 +381,24 @@ test("an annotation the engine did not draw resolves scrollToAnnotation false at
   ).resolves.toBe(false);
   // Not drawable, so not selected either.
   expect(handle().getSelectedAnnotationIds()).toEqual([]);
+});
+
+test("a document stylesheet that fails the check is dropped with one warning; annotations still render", async () => {
+  parsing.tamper = true;
+  const { container } = setup();
+  await load("<style>p { color: red }</style><p>doc</p>");
+
+  const docx = container.querySelector("[data-rca-docx]") as HTMLElement;
+  const sheets = Array.from(
+    docx.querySelectorAll("style"),
+    (s) => s.textContent
+  );
+  // The document's stylesheet is empty; the format's own is there.
+  expect(sheets).toHaveLength(2);
+  expect(sheets[0]).toBe("");
+  expect(sheets[1]).toContain(".oc-annot-highlight");
+  expect(warnings().filter((m) => m.includes("stylesheet"))).toHaveLength(1);
+  expect(
+    container.querySelector(`${PAGES} [data-annotation-id="d-1"]`)
+  ).not.toBeNull();
 });

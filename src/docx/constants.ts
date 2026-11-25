@@ -71,3 +71,14 @@ export const PENDING_ENTRY_ID = "__pending__";
  * OpenContracts' `SelectionLayer` literal).
  */
 export const PENDING_COLOR = "#0066cc";
+
+/**
+ * The custom properties a document's stylesheet keeps (with a number for
+ * value; every other is dropped): the line spacing docxodus' paragraph rules
+ * declare and its span rules read (`line-height: calc(1lh *
+ * var(--docx-auto-line-spacing))`). Its page-scale property is declared but
+ * never read (`PaginatedDocument` scales pages itself), so it goes.
+ */
+export const DOCUMENT_CUSTOM_PROPERTIES: ReadonlySet<string> = new Set([
+  "--docx-auto-line-spacing",
+]);

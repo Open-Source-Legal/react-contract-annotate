@@ -9,6 +9,15 @@
  * colours and chips, selection, highlight colours), which changes without
  * projecting again.
  *
+ * Containment: the document is shown inside a frame of the library's own
+ * (`[data-rca-docx-frame]`), around the scope element. The document's
+ * stylesheet is scoped to the scope element and what is inside it, so it
+ * cannot select the frame; the frame contains layout and paint and isolates
+ * stacking, so nothing the document styles (a scope element fixed to the
+ * viewport, raised above everything) is positioned, painted or hit outside
+ * the frame or above the host's content. The frame is as wide as its
+ * content or the root, whichever is wider, so a zoomed page still scrolls.
+ *
  * DOM contract: the element is `[data-rca-docx="<scope id>"]`; inside its
  * page container (class `rca-<scope id>-page-container`), each projected
  * part of an annotation or a highlight is `[data-annotation-id="<id>"]`
@@ -137,6 +146,18 @@ const PROJECTION_SETTINGS: ExternalAnnotationProjectionSettings = Object.freeze(
     validateBeforeProjection: true,
   }
 );
+
+/**
+ * The frame around the scope element (see the module comment): a containing
+ * block for fixed and absolute descendants, a paint clip and a stacking
+ * context, as wide as its content or the root.
+ */
+const FRAME_STYLE: CSSProperties = Object.freeze({
+  contain: "layout paint",
+  isolation: "isolate",
+  width: "max-content",
+  minWidth: "100%",
+});
 
 /**
  * The paginated view grows with its pages and never scrolls itself: the
@@ -486,30 +507,32 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   };
 
   return (
-    <div
-      ref={containerRef}
-      data-rca-docx={scope.id}
-      style={{ fontSize: `${zoom}em` }}
-      onMouseDown={onMouseDown}
-      onMouseUp={onMouseUp}
-      onClick={onClick}
-      onMouseOver={onMouseOver}
-      onMouseLeave={() => hover(null)}
-    >
-      {docx && <style>{docx.css}</style>}
-      <style>{customCss}</style>
-      {shown && (
-        <PaginatedDocument
-          html={shown.html}
-          scale={zoom}
-          showPageNumbers={true}
-          pageGap={PAGE_GAP_PX}
-          backgroundColor={DOCUMENT_BACKGROUND}
-          cssPrefix={scope.pagePrefix}
-          style={PAGINATED_STYLE}
-          onPaginationComplete={onPaginationComplete}
-        />
-      )}
+    <div data-rca-docx-frame="" style={FRAME_STYLE}>
+      <div
+        ref={containerRef}
+        data-rca-docx={scope.id}
+        style={{ fontSize: `${zoom}em` }}
+        onMouseDown={onMouseDown}
+        onMouseUp={onMouseUp}
+        onClick={onClick}
+        onMouseOver={onMouseOver}
+        onMouseLeave={() => hover(null)}
+      >
+        {docx && <style>{docx.css}</style>}
+        <style>{customCss}</style>
+        {shown && (
+          <PaginatedDocument
+            html={shown.html}
+            scale={zoom}
+            showPageNumbers={true}
+            pageGap={PAGE_GAP_PX}
+            backgroundColor={DOCUMENT_BACKGROUND}
+            cssPrefix={scope.pagePrefix}
+            style={PAGINATED_STYLE}
+            onPaginationComplete={onPaginationComplete}
+          />
+        )}
+      </div>
     </div>
   );
 }

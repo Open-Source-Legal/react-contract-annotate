@@ -7,6 +7,8 @@
   that, emitted unescaped into the converted document's stylesheet by
   docxodus, ends the font-family string at its line break and opens rules of
   its own (`} body { display: none } .z { a: `). Same text as test.docx.
+- hostile-overlay.docx: the same trick with a `body` rule that would cover
+  the whole page (fixed, inset 0, the highest z-index, a red background).
 
 Deterministic: re-running writes identical bytes.
 
@@ -23,6 +25,10 @@ LANDSCAPE_PARAGRAPHS = [
 ]
 # `&#10;` is a line feed in the attribute value.
 HOSTILE_FONT = "Evil&#10;} body { display: none } .z { a: "
+OVERLAY_FONT = (
+    "Evil&#10;} body { position: fixed !important; inset: 0 !important; "
+    "z-index: 2147483647 !important; background: red !important } .z { a: "
+)
 NORMAL_STYLE = '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/>'
 
 
@@ -48,10 +54,8 @@ def landscape_styles(source: str) -> str:
     )
 
 
-def hostile_styles(source: str) -> str:
-    return with_normal_run_properties(
-        source, f'<w:rFonts w:ascii="{HOSTILE_FONT}" w:hAnsi="{HOSTILE_FONT}"/>'
-    )
+def font_styles(font: str):
+    return lambda source: with_normal_run_properties(source, f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}"/>')
 
 
 def derive(target_name: str, rewrite: dict) -> None:
@@ -68,7 +72,8 @@ def derive(target_name: str, rewrite: dict) -> None:
 def main() -> None:
     derive("landscape.docx", {"word/document.xml": landscape_document, "word/styles.xml": landscape_styles})
     (FIXTURES / "landscape.txt").write_text("".join(f"{text}\n" for text in LANDSCAPE_PARAGRAPHS), encoding="utf-8")
-    derive("hostile-font.docx", {"word/styles.xml": hostile_styles})
+    derive("hostile-font.docx", {"word/styles.xml": font_styles(HOSTILE_FONT)})
+    derive("hostile-overlay.docx", {"word/styles.xml": font_styles(OVERLAY_FONT)})
 
 
 if __name__ == "__main__":

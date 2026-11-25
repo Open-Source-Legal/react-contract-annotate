@@ -25,14 +25,15 @@
  * failures are reported through the document status instead of a message in
  * the view; and the document is made the annotator's own (`isolation.ts`):
  * converted with the scope's class prefixes, its stylesheet taken out and
- * scoped, its ids prefixed.
+ * scoped (and dropped, with a development warning, when it fails the
+ * check), its inline styles cleaned, its ids prefixed.
  */
 import DOMPurify from "dompurify";
 import type { Config } from "dompurify";
 import { convertDocxToHtml, initialize, PaginationMode } from "docxodus";
 import { useEffect, useState } from "react";
 
-import { useSetDocumentStatus } from "../core/index";
+import { useDevWarnOnce, useSetDocumentStatus } from "../core/index";
 import type { DocxAnnotatorProps } from "../core/index";
 import { isolateDocument } from "./isolation";
 import type { DocxScope } from "./isolation";
@@ -62,6 +63,11 @@ const SANITIZE_CONFIG: Config = {
   ],
   ADD_TAGS: ["style"],
 };
+
+const REJECTED_STYLESHEET_WARNING =
+  "The DOCX annotator dropped the document's own stylesheet: once scoped to " +
+  "the annotator it did not parse back to the rules it was built from (a " +
+  "crafted or malformed document). The document is shown without it.";
 
 /** Converted docxodus HTML, sanitised (see `SANITIZE_CONFIG`). */
 export function sanitizeDocxHtml(html: string): string {
@@ -150,6 +156,7 @@ export function useDocxDocument(
   scope: DocxScope
 ): DocxDocument | null {
   const setStatus = useSetDocumentStatus();
+  const warnOnce = useDevWarnOnce();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   const url = "url" in source ? source.url : undefined;
@@ -182,7 +189,16 @@ export function useDocxDocument(
       .then((html) => {
         if (cancelled || html === null) return;
         const isolated = isolateDocument(sanitizeDocxHtml(html), scope);
-        setLoaded({ ...isolated, url, data, wasmBaseUrl });
+        if (isolated.cssRejected) {
+          warnOnce("docx-stylesheet-rejected", REJECTED_STYLESHEET_WARNING);
+        }
+        setLoaded({
+          html: isolated.html,
+          css: isolated.css,
+          url,
+          data,
+          wasmBaseUrl,
+        });
       })
       .catch((reason: unknown) => {
         if (cancelled) return;
@@ -193,7 +209,7 @@ export function useDocxDocument(
       cancelled = true;
       abort.abort();
     };
-  }, [setStatus, url, data, wasmBaseUrl, scope]);
+  }, [setStatus, warnOnce, url, data, wasmBaseUrl, scope]);
 
   return loaded !== null &&
     loaded.url === url &&

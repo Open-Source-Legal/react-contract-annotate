@@ -6,7 +6,7 @@
  * browser's: these tests check structure; the security tests run in
  * Chromium (`ct-tests/docx.ct.tsx`).
  */
-import type { CssParser } from "../isolation";
+import type { CssParser } from "../scopeStylesheet";
 
 export const parseInJsdom: CssParser = (css) => {
   const style = document.createElement("style");
