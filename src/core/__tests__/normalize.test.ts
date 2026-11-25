@@ -1,11 +1,12 @@
 import rawAnnotations from "../../../fixtures/eton/annotations.json";
 import {
   annotationPages,
+  draftPages,
   normalizeAnnotation,
   normalizeAnnotations,
   type TokenAnnotation,
 } from "../normalize";
-import type { Annotation } from "../types";
+import type { Annotation, MultipageAnnotationJson } from "../types";
 
 // JSON inference widens `v: 2` and the bounds tuple, so the fixture is cast.
 const anns = rawAnnotations as unknown as Annotation[];
@@ -131,4 +132,10 @@ test("normalizeAnnotations keeps the order and length of its input", () => {
 test("source keeps the caller's object for callbacks", () => {
   const a = byId("a-title");
   expect(normalizeAnnotation(a).source).toBe(a);
+});
+
+test("draftPages lists the pages of multipage token json and none for a span", () => {
+  const multi = byId("a-multi").json as MultipageAnnotationJson;
+  expect(draftPages({ 4: multi[4], 3: multi[3] })).toEqual([3, 4]);
+  expect(draftPages({ start: 2, end: 9 })).toEqual([]);
 });

@@ -137,6 +137,12 @@ export const SCROLL_SETTLE_TIMEOUT_MS = 5000;
 export const PAGE_GAP_PX = 32;
 /** Pages rendered beyond the visible range on each side. */
 export const PAGE_OVERSCAN = 2;
+/**
+ * How long the PDF viewport waits after the last zoom-driven render request
+ * before re-rendering the mounted pages together (OpenContracts' shared
+ * render debounce, `PDF.tsx`).
+ */
+export const PAGE_RENDER_DEBOUNCE_MS = 100;
 /** Touch hold (ms) that starts a text selection. */
 export const LONG_PRESS_MS = 500;
 /** Touch movement (px) that cancels a pending long press. */

@@ -10,6 +10,7 @@ import {
 import { sortedPageIndices } from "./geometry/pageIndices";
 import type {
   Annotation,
+  AnnotationDraft,
   AnnotationLabel,
   MultipageAnnotationJson,
   SpanAnnotationJson,
@@ -91,4 +92,9 @@ export function normalizeAnnotations(list: Annotation[]): InternalAnnotation[] {
 /** Ascending 0-based page indices an annotation draws on; `[]` for a span. */
 export function annotationPages(a: InternalAnnotation): number[] {
   return a.kind === "token" ? sortedPageIndices(a.json) : [];
+}
+
+/** Ascending 0-based page indices a draft's JSON covers; `[]` for a span. */
+export function draftPages(json: AnnotationDraft["json"]): number[] {
+  return isSpanFormat(json) ? [] : sortedPageIndices(json);
 }
