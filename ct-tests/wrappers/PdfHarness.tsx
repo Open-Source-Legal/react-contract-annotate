@@ -40,15 +40,20 @@ import type { CSSProperties } from "react";
 import type {
   Annotation,
   AnnotationDraft,
-  AnnotationLabel,
-  AnnotatorHandle,
   PawlsInput,
   PdfAnnotatorProps,
   Relation,
-  SelectionMenuContext,
 } from "../../src/core/index";
 import { PdfAnnotator } from "../../src/pdf/index";
-import type { HarnessEvent } from "../helpers/harness";
+import {
+  createdAnnotation,
+  DEFAULT_NAME,
+  eventLog,
+  loggedCallbacks,
+  renderMenu,
+  useHandleSetter,
+} from "./harnessShared";
+import type { CallbackName } from "./harnessShared";
 
 export interface PdfHarnessProps {
   mode?: "uncontrolled" | "controlled";
@@ -66,15 +71,9 @@ export interface PdfHarnessProps {
   name?: string;
 }
 
-const DEFAULT_NAME = "default";
 const SIZE: CSSProperties = { width: 900, height: 700, flex: "none" };
 const CONTROLLED_DEFAULT_ZOOM = 1;
 const NO_IDS: string[] = [];
-/** The label of a created annotation whose draft has none. */
-const CREATED_LABEL: AnnotationLabel = Object.freeze({
-  id: "l-created",
-  text: "Created",
-});
 
 const FIXTURES = {
   eton: {
@@ -106,56 +105,6 @@ async function fetchJson<T>(url: string | null, fallback: T): Promise<T> {
   return (await response.json()) as T;
 }
 
-/** Every callback prop of the annotator, each logged as it fires. */
-const CALLBACKS = [
-  "onSelectionChange",
-  "onZoomChange",
-  "onActiveHighlightChange",
-  "onCreateAnnotation",
-  "onTextSelect",
-  "onAnnotationClick",
-  "onAnnotationHover",
-  "onOpenLink",
-  "onDocumentLoad",
-  "onError",
-  "onVisiblePagesChange",
-] as const satisfies readonly (keyof PdfAnnotatorProps)[];
-
-export type CallbackName = (typeof CALLBACKS)[number];
-
-/** The log of the harness `name`, created on first use. */
-function eventLog(name: string): HarnessEvent[] {
-  const logs = (window.__rcaEventLogs ??= {});
-  const log = (logs[name] ??= []);
-  if (name === DEFAULT_NAME) window.__rcaEvents = log;
-  return log;
-}
-
-function loggedCallbacks(
-  log: HarnessEvent[],
-  props: Partial<PdfAnnotatorProps>,
-  omit: readonly CallbackName[],
-  afterEach?: () => void
-): Pick<PdfAnnotatorProps, CallbackName> {
-  const callbacks: Partial<Record<CallbackName, unknown>> = {};
-  for (const callback of CALLBACKS) {
-    if (omit.includes(callback)) {
-      callbacks[callback] = undefined;
-      continue;
-    }
-    const own = props[callback] as
-      | ((...args: unknown[]) => unknown)
-      | undefined;
-    callbacks[callback] = (...args: unknown[]) => {
-      log.push([callback, ...args]);
-      const result = own?.(...args);
-      afterEach?.();
-      return result;
-    };
-  }
-  return callbacks as Pick<PdfAnnotatorProps, CallbackName>;
-}
-
 /** The fixture annotations picked by `ids`, with `linkUrls` applied. */
 function pickAnnotations(
   all: Annotation[],
@@ -174,31 +123,6 @@ function copyPawls(pawls: PawlsInput): PawlsInput {
   return Array.isArray(pawls)
     ? pawls.map((page) => ({ ...page }))
     : { ...pawls, p: pawls.p.map((page) => ({ ...page })) };
-}
-
-/** The annotation a host makes of the `n`th created draft. */
-function createdAnnotation(draft: AnnotationDraft, n: number): Annotation {
-  return {
-    id: `created-${n}`,
-    annotationLabel: draft.annotationLabel ?? CREATED_LABEL,
-    rawText: draft.rawText,
-    page: draft.page,
-    json: draft.json,
-  };
-}
-
-function renderMenu(ctx: SelectionMenuContext) {
-  return (
-    <div data-harness-menu="">
-      <button
-        type="button"
-        data-harness-apply=""
-        onClick={() => ctx.commit()}
-      >
-        Apply
-      </button>
-    </div>
-  );
 }
 
 export function PdfHarness({
@@ -237,13 +161,7 @@ export function PdfHarness({
     };
   }, [files, withPawls]);
 
-  const setHandle = useCallback(
-    (handle: AnnotatorHandle | null) => {
-      (window.__rcaHandles ??= {})[name] = handle;
-      if (name === DEFAULT_NAME) window.__rca = handle;
-    },
-    [name]
-  );
+  const setHandle = useHandleSetter(name);
 
   // Memoised: annotations with `linkUrls` applied are new objects, and a new
   // annotation object on every render would be renormalised every render.

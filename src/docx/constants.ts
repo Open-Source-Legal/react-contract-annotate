@@ -1,0 +1,70 @@
+/**
+ * Constants of the DOCX format: ported value-for-value from OpenContracts'
+ * `DocxAnnotator` / `docxOffsetUtils` (`renderers/docx/`, 98286cabf) and the
+ * `OS_LEGAL_COLORS` they read, then the library's own additions.
+ */
+
+// ---------------------------------------------------------------------------
+// Ported from OpenContracts
+// ---------------------------------------------------------------------------
+
+/** CSS class prefix of the elements docxodus' projection produces. */
+export const CSS_CLASS_PREFIX = "oc-annot-";
+
+/** Class of annotation label elements injected by the WASM renderer. */
+export const ANNOTATION_LABEL_CLASS = "oc-annot-label";
+
+/** Class of the page numbers `PaginatedDocument` draws (not document text). */
+export const PAGE_NUMBER_CLASS = "page-number";
+
+/** Gap (px) `PaginatedDocument` leaves between pages. */
+export const PAGE_GAP_PX = 20;
+
+/** Background of the paginated view (`OS_LEGAL_COLORS.background`). */
+export const DOCUMENT_BACKGROUND = "#fafafa";
+
+/** Outline of a selected annotation (`OS_LEGAL_COLORS.primaryBlue`). */
+export const SELECTED_OUTLINE_COLOR = "#3b82f6";
+/** Fill of a selected annotation (`primaryBlue` at 0.15). */
+export const SELECTED_BACKGROUND = "rgba(59, 130, 246, 0.15)";
+/** Outline of a hovered annotation (`OS_LEGAL_COLORS.borderHover`). */
+export const HOVER_OUTLINE_COLOR = "#cbd5e1";
+/** Opacity (%) of an annotation's label colour behind its text (0.15). */
+export const LABEL_BACKGROUND_PERCENT = 15;
+
+/**
+ * The label chip (a `::before` on an annotation's first span): the fallbacks
+ * of `--rca-label-font-size` and `--rca-z-label-chip`.
+ */
+export const LABEL_CHIP_FONT_SIZE = "0.65em";
+export const LABEL_CHIP_Z_INDEX = 10;
+
+// ---------------------------------------------------------------------------
+// Library additions
+// ---------------------------------------------------------------------------
+
+/**
+ * Synthetic label ids of what is projected besides annotations (replacing
+ * OpenContracts' search-result and chat-source labels): highlights, the
+ * active highlight, and the pending selection. They are reserved: an
+ * annotation label with one of these ids is drawn as that synthetic kind.
+ */
+export const HIGHLIGHT_LABEL_ID = "__highlight__";
+export const ACTIVE_HIGHLIGHT_LABEL_ID = "__highlight_active__";
+export const PENDING_LABEL_ID = "__pending__";
+/** Id of the projected entry of the pending selection. */
+export const PENDING_ENTRY_ID = "__pending__";
+
+/**
+ * Colour of the pending selection: the PDF format's (`SELECTION_COLOR`,
+ * OpenContracts' `SelectionLayer` literal).
+ */
+export const PENDING_COLOR = "#0066cc";
+
+/**
+ * Class of the element holding the laid-out pages (`PaginatedDocument`'s
+ * default `cssPrefix`, `page-`). `PaginatedDocument` keeps an invisible copy
+ * of the document in its staging element, so everything that looks for
+ * annotations or offsets looks inside this one.
+ */
+export const PAGE_CONTAINER_CLASS = "page-container";

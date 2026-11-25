@@ -28,6 +28,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 
 import {
+  centreBox,
   useAllAnnotations,
   useHighlights,
   useRootElement,
@@ -38,7 +39,6 @@ import {
 } from "../core/index";
 import type { ScrollTarget, TokenAnnotation } from "../core/index";
 import { AnnotationBox } from "./AnnotationBox";
-import { centreBox } from "./centreBox";
 import { HighlightOverlay } from "./HighlightOverlay";
 import { usePdfPages } from "./loader";
 import { NativeLinkLayer } from "./NativeLinkLayer";

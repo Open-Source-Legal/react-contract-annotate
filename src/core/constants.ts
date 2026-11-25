@@ -110,6 +110,16 @@ export const DEFAULT_SCROLL_BEHAVIOR: ScrollBehavior = "smooth";
 export const DOCUMENT_ERROR_MESSAGE = "The document could not be loaded.";
 /** How long a bounded scroll request waits before settling `false`. */
 export const SCROLL_SETTLE_TIMEOUT_MS = 5000;
+/**
+ * Distance (px) from its target at which a scroll to an annotation counts as
+ * landed (browsers round scroll offsets).
+ */
+export const SCROLL_LANDED_TOLERANCE_PX = 1;
+/**
+ * Animation frames the scroll position must hold still for a scroll to count
+ * as landed when no `scrollend` arrives (browsers without it).
+ */
+export const SCROLL_SETTLE_FRAMES = 10;
 /** `KeyboardEvent.key` of the key that cancels a pending selection. */
 export const ESCAPE_KEY = "Escape";
 

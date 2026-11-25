@@ -123,15 +123,5 @@ export const PAGE_RENDER_DEBOUNCE_MS = 100;
  * annotation for the press to count as a click rather than a drag.
  */
 export const CLICK_DRAG_TOLERANCE_PX = 3;
-/**
- * Distance (px) from its target at which a scroll to an annotation counts as
- * landed (browsers round scroll offsets).
- */
-export const SCROLL_LANDED_TOLERANCE_PX = 1;
-/**
- * Animation frames the scroll position must hold still for a scroll to count
- * as landed when no `scrollend` arrives (browsers without it).
- */
-export const SCROLL_SETTLE_FRAMES = 10;
 /** `KeyboardEvent.key` of the key that cancels a selection being made. */
 export const ESCAPE_KEY = "Escape";

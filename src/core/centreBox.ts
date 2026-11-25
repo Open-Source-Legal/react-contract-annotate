@@ -1,13 +1,14 @@
 /**
- * The last step of a scroll request for an annotation: bring its box into
- * view and report when the scroll has landed. As in OpenContracts
- * (`scrollIntoView({ block: "center" })`, `renderers/pdf/PDFPage.tsx`,
- * 98286cabf), the box is centred vertically and moved horizontally only as
- * far as it takes to bring it into view ("nearest").
+ * The last step of a scroll request, shared by the formats: bring the
+ * target's element into view and report when the scroll has landed. As in
+ * OpenContracts (`scrollIntoView({ block: "center" })`,
+ * `renderers/pdf/PDFPage.tsx`, 98286cabf), the element is centred vertically
+ * and moved horizontally only as far as it takes to bring it into view
+ * ("nearest").
  *
  * The instance's own scroll container (the root) is scrolled by computed
  * offset, so host ancestors do not move; when the root does not scroll (the
- * viewport's window fallback), `scrollIntoView` is used instead.
+ * window fallback), `scrollIntoView` is used instead.
  */
 import { SCROLL_LANDED_TOLERANCE_PX, SCROLL_SETTLE_FRAMES } from "./constants";
 

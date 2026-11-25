@@ -45,6 +45,7 @@ export {
 } from "./pending";
 
 export { useRequestScroll, useScrollRequest } from "./scroll";
+export { centreBox } from "./centreBox";
 export type {
   ScrollRequest,
   ScrollRequestOptions,
@@ -61,6 +62,7 @@ export type {
   TokenAnnotation,
 } from "./normalize";
 export { highlightColor, highlightPages, isSpanHighlight } from "./highlights";
+export { TEXT_BLOCK_HIGHLIGHT_COLOR } from "./constants";
 
 export {
   doOverlap,

@@ -17,4 +17,6 @@ test("ported values match OpenContracts", () => {
 test("library additions", () => {
   expect(C.ZOOM_STEP).toBe(0.1);
   expect(C.SCROLL_SETTLE_TIMEOUT_MS).toBe(5000);
+  expect(C.SCROLL_LANDED_TOLERANCE_PX).toBe(1);
+  expect(C.SCROLL_SETTLE_FRAMES).toBe(10);
 });

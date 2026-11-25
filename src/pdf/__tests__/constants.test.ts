@@ -31,8 +31,6 @@ test("library additions", () => {
   expect(C.PAGE_OVERSCAN).toBe(2);
   expect(C.PAGE_RENDER_DEBOUNCE_MS).toBe(100);
   expect(C.CLICK_DRAG_TOLERANCE_PX).toBe(3);
-  expect(C.SCROLL_LANDED_TOLERANCE_PX).toBe(1);
-  expect(C.SCROLL_SETTLE_FRAMES).toBe(10);
   expect(C.ESCAPE_KEY).toBe("Escape");
 });
 

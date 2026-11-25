@@ -1,0 +1,755 @@
+import { expect, test } from "@playwright/experimental-ct-react";
+import type { Locator, Page } from "@playwright/test";
+
+import { DocxHarness } from "./wrappers/DocxHarness";
+
+import type { AnnotationLabel, Highlight } from "../src/core/index";
+import { setupDocxodusWasm } from "./helpers/docxodusWasm";
+import { serveFixtures } from "./helpers/fixtures";
+import { settledScrollTop } from "./helpers/geometry";
+import {
+  annotatorRoot,
+  callHandle,
+  harnessEvents,
+  waitForDocumentLoad,
+} from "./helpers/harness";
+
+/** How far from the view's centre a centred element may be. */
+const CENTRE_TOLERANCE_PX = 80;
+/** Tolerance (px) of measured sizes. */
+const SIZE_TOLERANCE_PX = 1;
+/** A zoom at which the fixture's annotations sit below the first view. */
+const TALL_ZOOM = 3;
+/** At `TALL_ZOOM`, a horizontal scroll that shows both d-1 and d-2. */
+const CLICK_SCROLL_LEFT = 300;
+/** Settle time after a drag's release, and after a click (UI update). */
+const SETTLE_MS = 500;
+/** The fixture's labels. */
+const CLAUSE_LABEL: AnnotationLabel = {
+  id: "label-1",
+  text: "Important Clause",
+  color: "#FF6B6B",
+};
+/** The colour of a selected annotation's outline. */
+const SELECTED_OUTLINE = "rgb(59, 130, 246)";
+/** A snippet of the fixture clear of every fixture annotation. */
+const SNIPPET = "sample DOCX document";
+
+/** Console errors and warnings, and uncaught errors, of the current test. */
+const consoleProblems: string[] = [];
+
+test.beforeEach(async ({ page }) => {
+  consoleProblems.length = 0;
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") {
+      consoleProblems.push(`[${message.type()}] ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(error.message));
+  await serveFixtures(page);
+  await setupDocxodusWasm(page);
+});
+
+test.afterEach(() => {
+  // Render failures (and React warnings) only show up in the console.
+  expect(consoleProblems).toEqual([]);
+});
+
+/** The fixture's text, as the harness passes it. */
+function fixtureText(page: Page): Promise<string> {
+  return page.evaluate(async () => {
+    const response = await fetch("/fixtures/docx/text.txt");
+    return response.text();
+  });
+}
+
+/** The laid-out pages of the harness' annotator. */
+function pages(page: Page, name?: string): Locator {
+  return annotatorRoot(page, name).locator("[data-rca-docx] .page-container");
+}
+
+/** The laid-out parts of an annotation (not of a highlight with its id). */
+function annotationParts(page: Page, id: string, name?: string): Locator {
+  return pages(page, name).locator(
+    `[data-annotation-id="${id}"]:not([data-label-id^="__"])`
+  );
+}
+
+function highlightParts(page: Page, id: string): Locator {
+  return pages(page).locator(
+    `[data-annotation-id="${id}"][data-label-id^="__highlight"]`
+  );
+}
+
+function pendingParts(page: Page): Locator {
+  return pages(page).locator('[data-label-id="__pending__"]');
+}
+
+/** Where `locator`'s first element is in the root's view. */
+async function inRootView(page: Page, locator: Locator) {
+  const root = annotatorRoot(page);
+  const box = await locator.first().evaluate((element) => {
+    const { top, bottom } = element.getBoundingClientRect();
+    return { top, bottom };
+  });
+  const view = await root.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return { top: rect.top + el.clientTop, height: el.clientHeight };
+  });
+  return {
+    top: box.top - view.top,
+    bottom: box.bottom - view.top,
+    viewHeight: view.height,
+  };
+}
+
+async function expectCentred(page: Page, locator: Locator): Promise<void> {
+  await settledScrollTop(annotatorRoot(page));
+  const { top, bottom, viewHeight } = await inRootView(page, locator);
+  expect(top).toBeGreaterThanOrEqual(0);
+  expect(bottom).toBeLessThanOrEqual(viewHeight);
+  expect(Math.abs((top + bottom) / 2 - viewHeight / 2)).toBeLessThanOrEqual(
+    CENTRE_TOLERANCE_PX
+  );
+}
+
+/**
+ * Expects `locator`'s first element to sit below the middle of the root's
+ * view at the current scroll, so centring it would scroll the root.
+ */
+async function expectBelowCentre(page: Page, locator: Locator): Promise<void> {
+  const { top, bottom, viewHeight } = await inRootView(page, locator);
+  expect(bottom).toBeLessThanOrEqual(viewHeight);
+  expect((top + bottom) / 2).toBeGreaterThan(
+    viewHeight / 2 + SIZE_TOLERANCE_PX
+  );
+}
+
+function scrollTop(page: Page): Promise<number> {
+  return annotatorRoot(page).evaluate((el) => el.scrollTop);
+}
+
+/** Scrolls the root to the bottom, below everything the fixture annotates. */
+async function scrollToBottom(page: Page): Promise<void> {
+  const root = annotatorRoot(page);
+  await root.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+  await settledScrollTop(root);
+}
+
+/**
+ * Drags with `page.mouse` across the `occurrence`th (from 0) laid-out
+ * occurrence of `snippet` (within one text node), then waits `SETTLE_MS`.
+ */
+async function selectSnippet(
+  page: Page,
+  snippet: string,
+  occurrence = 0
+): Promise<void> {
+  const container = pages(page);
+  const { from, to } = await container.evaluate(
+    (el, [wanted, nth]) => {
+      const walker = el.ownerDocument.createTreeWalker(
+        el,
+        NodeFilter.SHOW_TEXT
+      );
+      let seen = 0;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const value = node.textContent ?? "";
+        for (
+          let at = value.indexOf(wanted);
+          at >= 0;
+          at = value.indexOf(wanted, at + 1)
+        ) {
+          if (seen++ < nth) continue;
+          const range = el.ownerDocument.createRange();
+          range.setStart(node, at);
+          range.setEnd(node, at + wanted.length);
+          const rects = Array.from(range.getClientRects());
+          const first = rects[0];
+          const last = rects[rects.length - 1];
+          return {
+            from: { x: first.left + 1, y: first.top + first.height / 2 },
+            to: { x: last.right - 1, y: last.top + last.height / 2 },
+          };
+        }
+      }
+      throw new Error(`"${wanted}" #${nth} is not laid out`);
+    },
+    [snippet, occurrence] as const
+  );
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(SETTLE_MS);
+}
+
+/** The offsets of the first occurrence of `snippet` in the fixture text. */
+async function spanOf(
+  page: Page,
+  snippet: string
+): Promise<{ start: number; end: number }> {
+  const start = (await fixtureText(page)).indexOf(snippet);
+  if (start < 0) throw new Error(`"${snippet}" is not in the fixture text`);
+  return { start, end: start + snippet.length };
+}
+
+/**
+ * The first laid-out part's outline, `"<width> <color>"`, once it has
+ * stopped changing (outlines change with a short transition).
+ */
+async function outline(locator: Locator): Promise<string> {
+  const read = () =>
+    locator.first().evaluate((element) => {
+      const style = getComputedStyle(element);
+      return `${style.outlineWidth} ${style.outlineColor}`;
+    });
+  let last = await read();
+  for (;;) {
+    await locator.page().waitForTimeout(SETTLE_MS / 2);
+    const next = await read();
+    if (next === last) return next;
+    last = next;
+  }
+}
+
+/**
+ * Clicks the middle of `locator`'s first element with `page.mouse` (holding
+ * Ctrl/Cmd when `toggle`), then waits `SETTLE_MS`. Not `locator.click()`,
+ * which scrolls an element it deems partly hidden into view first.
+ */
+async function clickOn(
+  locator: Locator,
+  { toggle = false }: { toggle?: boolean } = {}
+): Promise<void> {
+  const page = locator.page();
+  const box = await locator.first().boundingBox();
+  if (!box) throw new Error("nothing to click");
+  if (toggle) await page.keyboard.down("ControlOrMeta");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  if (toggle) await page.keyboard.up("ControlOrMeta");
+  await page.waitForTimeout(SETTLE_MS);
+}
+
+/** Moves the pointer off the document (no hover outline). */
+async function pointerAway(page: Page): Promise<void> {
+  await page.mouse.move(1200, 880);
+}
+
+test("renders the document; onDocumentLoad fires with pageCount null and the text", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness />);
+  await waitForDocumentLoad(page);
+  const text = await fixtureText(page);
+
+  expect(await harnessEvents(page, "onDocumentLoad")).toEqual([
+    ["onDocumentLoad", { pageCount: null, text }],
+  ]);
+  await expect(pages(page)).toContainText("Hello World.");
+  await expect(pages(page)).toContainText("The Definition section explains");
+  await expect(pages(page).locator(".page-box")).toHaveCount(1);
+});
+
+test("annotations d-1 and d-2 are projected as [data-annotation-id]", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness />);
+  await waitForDocumentLoad(page);
+
+  await expect(annotationParts(page, "d-1")).toHaveText(["Hello World"]);
+  await expect(annotationParts(page, "d-2")).toHaveText(["Important Clause"]);
+  await expect(annotationParts(page, "d-1")).toHaveAttribute(
+    "data-label-id",
+    "label-1"
+  );
+  // d-3 is structural, hidden by default.
+  await expect(annotationParts(page, "d-3")).toHaveCount(0);
+  // Projecting adds no text: the paragraph d-1 starts reads as it did.
+  expect(await pages(page).locator("p").first().innerText()).toBe(
+    "Hello World. This is a sample DOCX document for testing."
+  );
+});
+
+test("d-bad-span is skipped and the others still render", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness annotationIds={["d-1", "d-bad-span", "d-2"]} />);
+  await waitForDocumentLoad(page);
+
+  await expect(annotationParts(page, "d-1")).toHaveCount(1);
+  await expect(annotationParts(page, "d-2")).toHaveCount(1);
+  await expect(
+    annotatorRoot(page).locator('[data-annotation-id="d-bad-span"]')
+  ).toHaveCount(0);
+  expect(await callHandle(page, "scrollToAnnotation", ["d-bad-span"])).toBe(
+    false
+  );
+});
+
+test("scrollToAnnotation('d-2') resolves true and the element is in view", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness props={{ defaultZoom: TALL_ZOOM }} />);
+  await waitForDocumentLoad(page);
+  await scrollToBottom(page);
+  const before = await inRootView(page, annotationParts(page, "d-2"));
+  expect(before.bottom).toBeLessThan(0);
+
+  expect(
+    await callHandle(page, "scrollToAnnotation", [
+      "d-2",
+      { behavior: "instant" },
+    ])
+  ).toBe(true);
+  await expectCentred(page, annotationParts(page, "d-2"));
+
+  // Smooth (the default) lands too, and resolves only once it has.
+  await scrollToBottom(page);
+  expect(await callHandle(page, "scrollToAnnotation", ["d-1"])).toBe(true);
+  await expectCentred(page, annotationParts(page, "d-1"));
+});
+
+test("span highlight is painted; activeHighlightId scrolls to it", async ({
+  mount,
+  page,
+}) => {
+  const harness = (
+    activeHighlightId: string | null,
+    highlights?: Highlight[]
+  ) => (
+    <DocxHarness
+      props={{ defaultZoom: TALL_ZOOM, highlights, activeHighlightId }}
+    />
+  );
+  const component = await mount(harness(null));
+  await waitForDocumentLoad(page);
+  const highlight: Highlight = {
+    id: "h-1",
+    color: "#16a34a",
+    target: { kind: "span", ...(await spanOf(page, SNIPPET)) },
+  };
+  await component.update(harness(null, [highlight]));
+
+  const parts = highlightParts(page, "h-1");
+  await expect(parts).toHaveText([SNIPPET]);
+  await expect(parts).toHaveAttribute("data-label-id", "__highlight__");
+  // In its own colour.
+  expect(
+    await parts.first().evaluate((el) => getComputedStyle(el).borderBottomColor)
+  ).toBe("rgb(22, 163, 74)");
+
+  await scrollToBottom(page);
+  await component.update(harness("h-1", [highlight]));
+  await expect(parts).toHaveAttribute("data-label-id", "__highlight_active__");
+  await expectCentred(page, parts);
+
+  // And through the handle.
+  await scrollToBottom(page);
+  expect(await callHandle(page, "scrollToHighlight", ["h-1"])).toBe(true);
+  await expectCentred(page, parts);
+});
+
+test("click selects (uncontrolled); ctrl-click toggles; click on plain text clears", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness props={{ defaultZoom: TALL_ZOOM }} />);
+  await waitForDocumentLoad(page);
+  // Both annotations in view, and d-2 low enough that a scroll to the
+  // selection (d-2 first) would show.
+  await annotatorRoot(page).evaluate((el, left) => {
+    el.scrollLeft = left;
+  }, CLICK_SCROLL_LEFT);
+  await expectBelowCentre(page, annotationParts(page, "d-2"));
+  const selection = () => callHandle(page, "getSelectedAnnotationIds", []);
+
+  await clickOn(annotationParts(page, "d-2"));
+  expect(await selection()).toEqual(["d-2"]);
+  // A user click does not scroll.
+  expect(await settledScrollTop(annotatorRoot(page))).toBe(0);
+  await clickOn(annotationParts(page, "d-1"), { toggle: true });
+  expect(await selection()).toEqual(["d-2", "d-1"]);
+  await clickOn(annotationParts(page, "d-2"), { toggle: true });
+  expect(await selection()).toEqual(["d-1"]);
+  await clickOn(annotationParts(page, "d-2"));
+  expect(await selection()).toEqual(["d-2"]);
+
+  await pointerAway(page);
+  expect(await outline(annotationParts(page, "d-2"))).toBe(
+    `2px ${SELECTED_OUTLINE}`
+  );
+  expect(await outline(annotationParts(page, "d-1"))).not.toContain(
+    SELECTED_OUTLINE
+  );
+
+  await clickOn(pages(page).getByText("section explains key terms"));
+  expect(await selection()).toEqual([]);
+
+  expect(await harnessEvents(page, "onSelectionChange")).toEqual([
+    ["onSelectionChange", ["d-2"], { source: "user" }],
+    ["onSelectionChange", ["d-2", "d-1"], { source: "user" }],
+    ["onSelectionChange", ["d-1"], { source: "user" }],
+    ["onSelectionChange", ["d-2"], { source: "user" }],
+    ["onSelectionChange", [], { source: "user" }],
+  ]);
+  const clicked = (await harnessEvents(page, "onAnnotationClick")).map(
+    ([, annotation]) => (annotation as { id: string }).id
+  );
+  expect(clicked).toEqual(["d-2", "d-1", "d-2", "d-2"]);
+  // Nor did any later one.
+  expect(await scrollTop(page)).toBe(0);
+  expect(await annotatorRoot(page).evaluate((el) => el.scrollLeft)).toBe(
+    CLICK_SCROLL_LEFT
+  );
+});
+
+test("controlled selection: click fires onSelectionChange and DOM selection state follows the prop only", async ({
+  mount,
+  page,
+}) => {
+  const component = await mount(
+    <DocxHarness mode="controlled" props={{ zoom: TALL_ZOOM }} />
+  );
+  await waitForDocumentLoad(page);
+  await annotatorRoot(page).evaluate((el, left) => {
+    el.scrollLeft = left;
+  }, CLICK_SCROLL_LEFT);
+  await expectBelowCentre(page, annotationParts(page, "d-2"));
+
+  await clickOn(annotationParts(page, "d-2"));
+  await pointerAway(page);
+  expect(await harnessEvents(page, "onSelectionChange")).toEqual([
+    ["onSelectionChange", ["d-2"], { source: "user" }],
+  ]);
+  expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([]);
+  expect(await outline(annotationParts(page, "d-2"))).not.toContain(
+    SELECTED_OUTLINE
+  );
+
+  // The host applies the change: the echo of a user click does not scroll.
+  await component.update(
+    <DocxHarness
+      mode="controlled"
+      props={{ zoom: TALL_ZOOM, selectedAnnotationIds: ["d-2"] }}
+    />
+  );
+  await expect
+    .poll(() => outline(annotationParts(page, "d-2")))
+    .toBe(`2px ${SELECTED_OUTLINE}`);
+  expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([
+    "d-2",
+  ]);
+  expect(await settledScrollTop(annotatorRoot(page))).toBe(0);
+});
+
+test("a selection present at mount scrolls to it once the document has loaded", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DocxHarness
+      props={{ defaultZoom: TALL_ZOOM, defaultSelectedAnnotationIds: ["d-2"] }}
+    />
+  );
+  await waitForDocumentLoad(page);
+  await expectCentred(page, annotationParts(page, "d-2"));
+  expect(await scrollTop(page)).toBeGreaterThan(0);
+});
+
+test("scrollToAnnotation(id, { select: true }) reveals a hidden structural annotation", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness props={{ defaultZoom: TALL_ZOOM }} />);
+  await waitForDocumentLoad(page);
+  await expect(annotationParts(page, "d-3")).toHaveCount(0);
+
+  expect(
+    await callHandle(page, "scrollToAnnotation", [
+      "d-3",
+      { select: true, behavior: "instant" },
+    ])
+  ).toBe(true);
+  await expect(annotationParts(page, "d-3")).toHaveText(["The Definition"]);
+  await expectCentred(page, annotationParts(page, "d-3"));
+  expect(await callHandle(page, "getSelectedAnnotationIds", [])).toEqual([
+    "d-3",
+  ]);
+});
+
+test("selecting text -> onTextSelect with start/end matching text.slice(start,end) === rawText", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness />);
+  await waitForDocumentLoad(page);
+  const text = await fixtureText(page);
+
+  type Pending = {
+    json: { start: number; end: number };
+    rawText: string;
+    page: number;
+  };
+  const selected = async () =>
+    ((await harnessEvents(page, "onTextSelect")).at(-1)?.[1] ??
+      null) as Pending | null;
+
+  // "This" occurs twice (offsets 13 and 57): the one selected is meant.
+  await selectSnippet(page, "This", 1);
+  const pending = await selected();
+  expect(pending).toMatchObject({
+    json: { start: 57, end: 61 },
+    rawText: "This",
+    page: 0,
+    annotationLabel: null,
+  });
+  expect(text.slice(57, 61)).toBe(pending?.rawText);
+  await selectSnippet(page, "This", 0);
+  expect((await selected())?.json).toEqual({ start: 13, end: 17 });
+
+  await selectSnippet(page, SNIPPET);
+  const second = (await selected()) as Pending;
+  const span = await spanOf(page, SNIPPET);
+  expect(second.json).toEqual(span);
+  expect(text.slice(second.json.start, second.json.end)).toBe(second.rawText);
+  // No slot and no active label: it stays pending, painted.
+  expect(await callHandle(page, "getPendingSelection", [])).toMatchObject({
+    json: span,
+  });
+  await expect(pendingParts(page)).toHaveText([SNIPPET]);
+});
+
+test("outcome 2 with activeLabel -> onCreateAnnotation with json {start,end}", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness props={{ activeLabel: CLAUSE_LABEL }} />);
+  await waitForDocumentLoad(page);
+
+  await selectSnippet(page, SNIPPET);
+  expect(await harnessEvents(page, "onCreateAnnotation")).toEqual([
+    [
+      "onCreateAnnotation",
+      {
+        json: await spanOf(page, SNIPPET),
+        rawText: SNIPPET,
+        page: 0,
+        annotationLabel: CLAUSE_LABEL,
+      },
+    ],
+  ]);
+  expect(await callHandle(page, "getPendingSelection", [])).toBeNull();
+  await expect(pendingParts(page)).toHaveCount(0);
+});
+
+test("outcome 1 with renderSelectionMenu -> slot shown, pending stays painted, commit creates", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DocxHarness
+      selectionMenu
+      addCreated
+      props={{ activeLabel: CLAUSE_LABEL }}
+    />
+  );
+  await waitForDocumentLoad(page);
+
+  await selectSnippet(page, SNIPPET);
+  const menu = page.locator("[data-harness-menu]");
+  await expect(menu).toBeVisible();
+  expect(await harnessEvents(page, "onCreateAnnotation")).toEqual([]);
+  // Painted by the projection once the native selection is gone.
+  await expect(pendingParts(page)).toHaveText([SNIPPET]);
+  expect(await page.evaluate(() => getSelection()?.toString() ?? "")).toBe("");
+
+  await page.locator("[data-harness-apply]").click();
+  await expect(menu).toHaveCount(0);
+  expect(await harnessEvents(page, "onCreateAnnotation")).toEqual([
+    [
+      "onCreateAnnotation",
+      {
+        json: await spanOf(page, SNIPPET),
+        rawText: SNIPPET,
+        page: 0,
+        annotationLabel: CLAUSE_LABEL,
+      },
+    ],
+  ]);
+  await expect(annotationParts(page, "created-1")).toHaveText([SNIPPET]);
+  await expect(pendingParts(page)).toHaveCount(0);
+});
+
+test("showStructural toggles structural spans; visibleLabelIds filters; selected stays visible when filtered", async ({
+  mount,
+  page,
+}) => {
+  const component = await mount(<DocxHarness />);
+  await waitForDocumentLoad(page);
+  await expect(annotationParts(page, "d-3")).toHaveCount(0);
+
+  await component.update(<DocxHarness props={{ showStructural: true }} />);
+  await expect(annotationParts(page, "d-3")).toHaveText(["The Definition"]);
+
+  await component.update(
+    <DocxHarness
+      props={{ showStructural: true, visibleLabelIds: ["label-2"] }}
+    />
+  );
+  await expect(annotationParts(page, "d-1")).toHaveCount(0);
+  await expect(annotationParts(page, "d-3")).toHaveCount(0);
+  await expect(annotationParts(page, "d-2")).toHaveCount(1);
+
+  await component.update(
+    <DocxHarness
+      props={{
+        showStructural: true,
+        visibleLabelIds: ["label-2"],
+        selectedAnnotationIds: ["d-1"],
+      }}
+    />
+  );
+  await expect(annotationParts(page, "d-1")).toHaveText(["Hello World"]);
+  await expect(annotationParts(page, "d-3")).toHaveCount(0);
+});
+
+test("labelDisplay 'hide' removes label chips; any other value shows them", async ({
+  mount,
+  page,
+}) => {
+  const chip = () =>
+    annotationParts(page, "d-1")
+      .first()
+      .evaluate((el) => getComputedStyle(el, "::before").content);
+  const component = await mount(<DocxHarness />);
+  await waitForDocumentLoad(page);
+  expect(await chip()).toBe('"Important Clause"');
+
+  await component.update(<DocxHarness props={{ labelDisplay: "hide" }} />);
+  await expect.poll(chip).toBe("none");
+  // The annotation itself is still drawn.
+  expect(
+    await annotationParts(page, "d-1")
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderBottomStyle)
+  ).toBe("solid");
+
+  await component.update(<DocxHarness props={{ labelDisplay: "always" }} />);
+  await expect.poll(chip).toBe('"Important Clause"');
+});
+
+test("setZoom(1.5) scales the document; setZoom('fit-width') -> getZoom() === 1", async ({
+  mount,
+  page,
+}) => {
+  await mount(<DocxHarness />);
+  await waitForDocumentLoad(page);
+  expect(await callHandle(page, "getZoom", [])).toBe(1);
+  const pageBox = pages(page).locator(".page-box");
+  const width = async () => (await pageBox.boundingBox())?.width ?? 0;
+  const natural = await width();
+  expect(natural).toBeGreaterThan(0);
+
+  await callHandle(page, "setZoom", [1.5]);
+  await expect
+    .poll(async () => Math.abs((await width()) - natural * 1.5))
+    .toBeLessThanOrEqual(SIZE_TOLERANCE_PX);
+  // Wider than the view, the page starts inside it: none of it is out of
+  // reach to the left.
+  const rootBox = await annotatorRoot(page).boundingBox();
+  const pageLeft = (await pageBox.boundingBox())?.x ?? -Infinity;
+  expect(pageLeft).toBeGreaterThanOrEqual(rootBox?.x ?? 0);
+  expect(await callHandle(page, "getZoom", [])).toBe(1.5);
+  const zoomEvents = await harnessEvents(page, "onZoomChange");
+  expect(zoomEvents.at(-1)).toEqual(["onZoomChange", 1.5]);
+  // Annotations survive the new layout.
+  await expect(annotationParts(page, "d-1")).toHaveCount(1);
+
+  await callHandle(page, "setZoom", ["fit-width"]);
+  expect(await callHandle(page, "getZoom", [])).toBe(1);
+});
+
+test("findText returns span highlights whose slices equal the query", async ({
+  mount,
+  page,
+}) => {
+  const component = await mount(<DocxHarness />);
+  await waitForDocumentLoad(page);
+  const text = await fixtureText(page);
+
+  const found = await callHandle(page, "findText", [
+    "This",
+    { caseSensitive: true },
+  ]);
+  expect(found.map((h) => h.id)).toEqual(["find-0", "find-1"]);
+  for (const highlight of found) {
+    if (highlight.target.kind !== "span") throw new Error("not a span");
+    expect(text.slice(highlight.target.start, highlight.target.end)).toBe(
+      "This"
+    );
+  }
+  const insensitive = await callHandle(page, "findText", ["important clause"]);
+  expect(insensitive).toHaveLength(1);
+  expect(await callHandle(page, "findText", ["nowhere"])).toEqual([]);
+
+  // Passed back, they are painted.
+  await component.update(<DocxHarness props={{ highlights: found }} />);
+  await expect(highlightParts(page, "find-0")).toHaveText(["This"]);
+  await expect(highlightParts(page, "find-1")).toHaveText(["This"]);
+});
+
+test("getPageCount() null, scrollToPage(1) false", async ({ mount, page }) => {
+  await mount(<DocxHarness />);
+  await waitForDocumentLoad(page);
+  expect(await callHandle(page, "getPageCount", [])).toBeNull();
+  expect(await callHandle(page, "getVisiblePageRange", [])).toBeNull();
+  expect(await callHandle(page, "scrollToPage", [1])).toBe(false);
+});
+
+test("no chrome in the root", async ({ mount, page }) => {
+  await mount(<DocxHarness props={{ labelDisplay: "always" }} />);
+  await waitForDocumentLoad(page);
+  await expect(annotationParts(page, "d-1")).toHaveCount(1);
+
+  const root = annotatorRoot(page);
+  await expect(
+    root.locator(
+      "button, input, select, textarea, [role=button], [role=menu], [role=dialog]"
+    )
+  ).toHaveCount(0);
+  // The document's own text and its page number, nothing else.
+  const text = await fixtureText(page);
+  const shown = (await pages(page).innerText()).replace(/\s+/g, " ").trim();
+  expect(shown).toBe(`${text.replace(/\s+/g, " ").trim()} 1`);
+});
+
+test("two viewers: selecting in one does not style the other", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <div style={{ display: "flex" }}>
+      <DocxHarness name="left" />
+      <DocxHarness name="right" />
+    </div>
+  );
+  await waitForDocumentLoad(page, "left");
+  await waitForDocumentLoad(page, "right");
+
+  await clickOn(annotationParts(page, "d-1", "left"));
+  await pointerAway(page);
+  expect(await outline(annotationParts(page, "d-1", "left"))).toBe(
+    `2px ${SELECTED_OUTLINE}`
+  );
+  expect(await outline(annotationParts(page, "d-1", "right"))).not.toContain(
+    SELECTED_OUTLINE
+  );
+  expect(
+    await callHandle(page, "getSelectedAnnotationIds", [], "right")
+  ).toEqual([]);
+});
