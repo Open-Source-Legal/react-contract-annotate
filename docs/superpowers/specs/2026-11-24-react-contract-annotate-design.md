@@ -510,11 +510,13 @@ scoped to its viewer instance: it must not restyle the host page or another
 viewer, and host CSS class names must not collide with the document's.
 Document CSS, in the stylesheet and in inline styles, is filtered by
 allow-list: a fixed set of presentational properties and a conservative
-value grammar. A document therefore cannot make the browser fetch anything,
-declare names the page shares (anchors, counters, containers, view
-transitions), or place a box outside its viewer. The viewer's frame contains
-layout, paint and style as a second barrier. Styling outside the allow-list
-is dropped (images and gradients in CSS, newer colour functions).
+value grammar. A document therefore cannot make the browser fetch a URL of
+its choosing, declare names the page shares (anchors, counters, containers,
+view transitions), or place a box outside its viewer. (It can name a font
+the host page itself declared, which the browser then loads from the host's
+URL.) The viewer's frame contains layout, paint and style: a second barrier
+for boxes, and the only one for list numbering. Styling outside the
+allow-list is dropped (images and gradients in CSS, newer colour functions).
 
 Two limits are accepted. Inside its own viewer the document controls how its
 content looks, and annotation marks are drawn on that content, so a hostile
