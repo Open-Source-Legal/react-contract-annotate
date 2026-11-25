@@ -505,9 +505,24 @@ display filters still counts as drawable, so `{ select: true }` can reveal
 it; without `select` such a scroll resolves `false` at the bounded timeout,
 on both formats.)
 
-**Isolation.** The converted document's own stylesheet is scoped to its
-viewer instance: it must not restyle the host page or another viewer, and
-host CSS class names must not collide with the document's.
+**Isolation.** The converted document is untrusted input. Its stylesheet is
+scoped to its viewer instance: it must not restyle the host page or another
+viewer, and host CSS class names must not collide with the document's.
+Document CSS, in the stylesheet and in inline styles, is filtered by
+allow-list: a fixed set of presentational properties and a conservative
+value grammar. A document therefore cannot make the browser fetch anything,
+declare names the page shares (anchors, counters, containers, view
+transitions), or place a box outside its viewer. The viewer's frame contains
+layout, paint and style as a second barrier. Styling outside the allow-list
+is dropped (images and gradients in CSS, newer colour functions).
+
+Two limits are accepted. Inside its own viewer the document controls how its
+content looks, and annotation marks are drawn on that content, so a hostile
+document can hide or imitate them there; a host reviewing adversarial
+documents should treat its own annotation list, not the rendering, as the
+record. Resource exhaustion by a hostile document (very large or pathological
+input) is not defended against, beyond a cap on the number of blocks in a
+document stylesheet that stops a known browser parser crash.
 
 **Scrolling element.** The component's root is the scroll container and
 fills its parent; the parent must have a height. The existing fallback to
