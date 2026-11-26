@@ -51,6 +51,9 @@
  *   scrolls the root to it. Either way the click is the link's, not an
  *   annotation's; the release of a text selection opens nothing.
  * - Hover goes to `onAnnotationHover`.
+ * - A new projection (an annotation added or removed, a highlight, the
+ *   pending selection) or a new zoom lays the document out again without
+ *   moving the root's scroll position.
  * - Scroll requests: once the document is laid out, the target's first
  *   element is centred in the root (`centreBox`) and the request completed
  *   when the scroll has landed; a target not laid out yet is looked for
@@ -424,13 +427,33 @@ export function DocxView({ docx, text, scope, suppressedRef }: DocxViewProps) {
   // `usePagination` writes the pages into this element itself (React renders
   // nothing in it), again whenever the HTML or the options change.
   const paginatedRef = useRef<HTMLDivElement>(null);
-  const pagination = usePagination(shown?.html ?? "", paginatedRef, {
+  const html = shown?.html ?? "";
+  // `usePagination` empties the element before it lays the pages out again,
+  // and a root scrolled into a document that is, for that moment, no taller
+  // than its stylesheets scrolls back to the start. So the scope element
+  // keeps the size it has from just before each new layout of a document
+  // already laid out (this effect runs before the pagination's, which is
+  // keyed on the same values) until that layout has succeeded or failed.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !html || !paginatedRef.current?.hasChildNodes()) return;
+    const { width, height } = getComputedStyle(container);
+    container.style.minWidth = width;
+    container.style.minHeight = height;
+  }, [html, zoom, scope.pagePrefix]);
+  const pagination = usePagination(html, paginatedRef, {
     scale: zoom,
     showPageNumbers: true,
     pageGap: PAGE_GAP_PX,
     cssPrefix: scope.pagePrefix,
     fragmentParagraphs: true,
   });
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.style.minWidth = "";
+    container.style.minHeight = "";
+  }, [pagination.result, pagination.error]);
   const [laidOut, setLaidOut] = useState<Projection | null>(null);
   const shownRef = useRef(shown);
   useLayoutEffect(() => {
