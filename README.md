@@ -756,7 +756,10 @@ yarn build && yarn --cwd examples/demo install && yarn --cwd examples/demo dev
 
 **Releasing.** Set `version` in `package.json`, merge, and publish a GitHub
 release tagged `v<version>`: `.github/workflows/publish.yml` builds, tests and
-publishes that version to npm. It refuses a tag that does not match the version.
+stages that version on npm. It refuses a tag that does not match the version.
+A staged version is not installable until a maintainer approves it on npmjs.com
+(Staged Packages) with their second factor; the workflow holds no npm token and
+cannot publish by itself.
 
 The demo is published to GitHub Pages from `main` by `.github/workflows/pages.yml`;
 `examples/demo/README.md` says where its documents come from and how its data is
