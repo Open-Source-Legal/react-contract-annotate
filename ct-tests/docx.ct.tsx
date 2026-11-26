@@ -452,6 +452,40 @@ test("scrollToAnnotation('d-2') resolves true and the element is in view", async
   await expectCentred(page, annotationParts(page, "d-1"));
 });
 
+test("the view stays where it is scrolled when the annotations change: one removed, one added, the zoom unchanged", async ({
+  mount,
+  page,
+}) => {
+  const harness = (annotationIds: string[]) => (
+    <DocxHarness
+      annotationIds={annotationIds}
+      props={{ defaultZoom: TALL_ZOOM }}
+    />
+  );
+  const component = await mount(harness(["d-1", "d-2"]));
+  await waitForDocumentLoad(page);
+  await scrollToBottom(page);
+  const root = annotatorRoot(page);
+  const scrolled = await settledScrollTop(root);
+  expect(scrolled).toBeGreaterThan(0);
+
+  // A host removes an annotation: the document is projected and laid out
+  // again.
+  await component.update(harness(["d-2"]));
+  await expect(annotationParts(page, "d-1")).toHaveCount(0);
+  await expect(annotationParts(page, "d-2")).toHaveCount(1);
+  expect(
+    Math.abs((await settledScrollTop(root)) - scrolled)
+  ).toBeLessThanOrEqual(SIZE_TOLERANCE_PX);
+
+  // And adds one.
+  await component.update(harness(["d-1", "d-2"]));
+  await expect(annotationParts(page, "d-1")).toHaveCount(1);
+  expect(
+    Math.abs((await settledScrollTop(root)) - scrolled)
+  ).toBeLessThanOrEqual(SIZE_TOLERANCE_PX);
+});
+
 test("span highlight is painted; activeHighlightId scrolls to it", async ({
   mount,
   page,
