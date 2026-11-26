@@ -1,22 +1,23 @@
-name: Publish to npm
+name: Stage on npm
 
-# Publishes the version in package.json when a GitHub release is published.
+# Stages the version in package.json on npm when a GitHub release is published.
+# A staged version is not installable: a maintainer approves it on npmjs.com
+# (Staged Packages) or with `npm stage approve`, which asks for their second
+# factor. Nothing in this repository can publish without that approval: the
+# workflow holds no npm token, and the package's trusted publisher on npm
+# allows `npm stage publish` only.
 on:
   release:
     types: [published]
 
 permissions:
   contents: read
-  # For npm provenance, and for npm trusted publishing (no token).
+  # For npm trusted publishing and the provenance attestation.
   id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      # Optional. Without it the publish uses npm trusted publishing, which
-      # must be set up for this workflow in the package's settings on npm.
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,8 +26,9 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      - name: Use trusted publishing when no token is configured
-        if: ${{ env.NPM_TOKEN == '' }}
+      # setup-node writes a placeholder token, which npm would send instead of
+      # authenticating as the trusted publisher.
+      - name: Authenticate as the trusted publisher only
         run: sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
 
       - name: Check the release tag is the package version
@@ -60,13 +62,14 @@ jobs:
       - name: Check dist
         run: yarn check:dist
 
-      - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Staged publishing needs npm 11.15 or later.
+      - name: Stage
         run: |
           VERSION=$(node -p "require('./package.json').version")
           if npm view "@os-legal/react-contract-annotate@$VERSION" version 2>/dev/null; then
             echo "v$VERSION is already published, skipping"
           else
-            npm publish --access public --provenance
+            npm --version
+            npm stage publish --access public --provenance
+            echo "::notice::v$VERSION is staged. Approve it on npmjs.com (Staged Packages) to publish it."
           fi
