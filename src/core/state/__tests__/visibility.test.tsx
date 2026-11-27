@@ -7,12 +7,14 @@
  * mocked hooks, followed by cases for the library's own additions.
  */
 import { act, renderHook } from "@testing-library/react";
-import { useStore } from "jotai";
 
 import { normalizeAnnotation } from "../../normalize";
 import type { InternalAnnotation } from "../../normalize";
 import type { Annotation, AnnotationLabel, Relation } from "../../types";
-import { AnnotatorProvider } from "../AnnotatorProvider";
+import {
+  AnnotatorProvider,
+  useAnnotatorStore,
+} from "../AnnotatorProvider";
 import {
   annotationsAtom,
   DEFAULT_DISPLAY_SETTINGS,
@@ -435,7 +437,10 @@ describe("selectVisibleAnnotations", () => {
 describe("useVisibleAnnotations", () => {
   function renderVisible() {
     return renderHook(
-      () => ({ visible: useVisibleAnnotations(), store: useStore() }),
+      () => ({
+        visible: useVisibleAnnotations(),
+        store: useAnnotatorStore("test"),
+      }),
       { wrapper: AnnotatorProvider }
     );
   }

@@ -13,6 +13,13 @@
 //      this rule only.
 //   5. jotai is imported only under src/core: it is private to the library
 //      and never part of a format's (or the public) API.
+//   6. Jotai's React context is never used: no `Provider` or `useStore`
+//      import from jotai, and every `useAtom` / `useAtomValue` /
+//      `useSetAtom` call passes its options (`{ store }`) as the second
+//      argument. The store travels in AnnotatorProvider's own context, so a
+//      host's Jotai context reaches the content it renders inside the
+//      annotator (the slots) untouched. Files under __tests__/ are exempt:
+//      a test may play a host that uses Jotai.
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +43,10 @@ const BANNED_PACKAGES = [
 ];
 
 const PDF_RUNTIME_ENTRY = "pdfjs-dist/legacy/build/pdf.mjs";
+/** Jotai's React context API, which would shadow a host's (rule 6). */
+const BANNED_JOTAI_IMPORTS = new Set(["Provider", "useStore"]);
+/** Jotai hooks that read the context's store unless given one (rule 6). */
+const JOTAI_HOOKS = new Set(["useAtom", "useAtomValue", "useSetAtom"]);
 const PDF_TYPES_PREFIX = "pdfjs-dist/types/";
 
 const BANNED_DOCUMENT_MEMBERS = new Set([
@@ -129,10 +140,26 @@ function checkFile(file) {
     }
   };
 
+  // Local names jotai's hooks are imported under in this file (rule 6).
+  const jotaiHookNames = new Set();
+
+  const checkJotaiImport = (node) => {
+    const bindings = node.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) return;
+    for (const element of bindings.elements) {
+      const imported = (element.propertyName ?? element.name).text;
+      if (BANNED_JOTAI_IMPORTS.has(imported)) {
+        report(element, `jotai's "${imported}" is banned: pass the annotator store explicitly (AnnotatorProvider's context), so a host's Jotai context stays its own`);
+      }
+      if (JOTAI_HOOKS.has(imported)) jotaiHookNames.add(element.name.text);
+    }
+  };
+
   const visit = (node) => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
       const specifier = stringValue(node.moduleSpecifier);
       if (specifier !== undefined) checkSpecifier(node, specifier);
+      if (!inTests && ts.isImportDeclaration(node) && specifier === "jotai") checkJotaiImport(node);
     } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
       const specifier = stringValue(node.moduleReference.expression);
       if (specifier !== undefined) checkSpecifier(node, specifier);
@@ -141,6 +168,9 @@ function checkFile(file) {
       if (specifier !== undefined) checkSpecifier(node, specifier);
     } else if (ts.isCallExpression(node)) {
       const callee = node.expression;
+      if (ts.isIdentifier(callee) && jotaiHookNames.has(callee.text) && node.arguments.length < 2) {
+        report(node, `${callee.text}() must be given the annotator store ({ store }): without one it reads the nearest Jotai Provider, which may be the host's`);
+      }
       const isDynamicImport = callee.kind === ts.SyntaxKind.ImportKeyword;
       const isRequire = ts.isIdentifier(callee) && callee.text === "require";
       if (isDynamicImport || isRequire) {

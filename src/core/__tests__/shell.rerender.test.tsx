@@ -1,9 +1,9 @@
 import { act, render } from "@testing-library/react";
-import { useStore } from "jotai";
 import { createRef, useState } from "react";
 
 import { AnnotatorShell } from "../AnnotatorShell";
 import { formatDriverAtom } from "../format";
+import { useAnnotatorStore } from "../state/AnnotatorProvider";
 import type { AnnotatorStore } from "../state/AnnotatorProvider";
 import {
   activeHighlightIdAtom,
@@ -32,7 +32,7 @@ const RENDERS = 20;
 
 /** Captures the instance store from inside the shell. */
 function StoreProbe({ onStore }: { onStore: (store: AnnotatorStore) => void }) {
-  onStore(useStore());
+  onStore(useAnnotatorStore("test"));
   return null;
 }
 

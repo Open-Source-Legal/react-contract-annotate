@@ -1,8 +1,8 @@
 /**
  * The atoms of one annotator instance. They are defined once at module level
  * (that is how Jotai works) but never read or written there: every component
- * reaches them through the `<Provider store>` that `AnnotatorProvider`
- * creates, so each instance has its own values.
+ * reaches them through the store that `AnnotatorProvider` creates (named
+ * explicitly with `{ store }`), so each instance has its own values.
  *
  * Initial values are frozen. A store starts from the shared initial value, so
  * one that could be mutated in place would leak between instances; frozen, an

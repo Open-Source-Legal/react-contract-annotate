@@ -1,7 +1,10 @@
 import { act, render } from "@testing-library/react";
-import { useStore } from "jotai";
 
-import { AnnotatorProvider } from "../AnnotatorProvider";
+import {
+  AnnotatorProvider,
+  useAnnotatorStore,
+} from "../AnnotatorProvider";
+import type { AnnotatorStore } from "../AnnotatorProvider";
 import {
   annotationsAtom,
   DEFAULT_DISPLAY_SETTINGS,
@@ -15,7 +18,7 @@ import {
   useSetControllable,
 } from "../controllable";
 
-type Store = ReturnType<typeof useStore>;
+type Store = AnnotatorStore;
 
 type Probe = {
   store: Store;
@@ -54,7 +57,7 @@ function ZoomProbe({
     defaultValue: 1,
     onChange: onZoomChange,
   });
-  probe.store = useStore();
+  probe.store = useAnnotatorStore("test");
   probe.setZoom = useSetControllable<number>("zoom");
   probe.lastUserZoom = useLastUserValue<number>("zoom");
   return null;

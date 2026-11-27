@@ -229,6 +229,11 @@ normalisation is memoised by object identity.
 Defaults and semantics are documented on `AnnotatorCommonProps`. Every format
 takes them; what DOCX does not support is listed in its support matrix below.
 
+What you render in a slot, and the `icon` of an annotation action, runs with
+your own React context: your providers reach it, Jotai's included. The viewer
+keeps its state in a private store that it never puts in Jotai's context, so
+an atom hook in slot content reads your store, not the viewer's.
+
 ### Controlled and internal state
 
 Selection, zoom and the active highlight are each **controlled** when the value
