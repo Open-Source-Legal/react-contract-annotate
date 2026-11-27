@@ -1,10 +1,13 @@
 import { act, render, renderHook } from "@testing-library/react";
-import { useStore } from "jotai";
 import { StrictMode, useLayoutEffect, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ChangeInfo } from "../../types";
-import { AnnotatorProvider } from "../AnnotatorProvider";
+import {
+  AnnotatorProvider,
+  useAnnotatorStore,
+} from "../AnnotatorProvider";
+import type { AnnotatorStore } from "../AnnotatorProvider";
 import {
   activeHighlightIdAtom,
   selectedAnnotationIdsAtom,
@@ -34,7 +37,7 @@ function renderZoom(initialProps: ZoomProps) {
     (props: ZoomProps) => {
       useControllable<number>("zoom", props);
       return {
-        store: useStore(),
+        store: useAnnotatorStore("test"),
         set: useSetControllable<number>("zoom"),
         lastUser: useLastUserValue<number>("zoom"),
       };
@@ -86,7 +89,7 @@ test("controlled: an equal value by `equals` does not rewrite the atom", () => {
         equals: shallowEqualArrays,
         ...props,
       });
-      return useStore();
+      return useAnnotatorStore("test");
     },
     { wrapper: AnnotatorProvider, initialProps: { value: ["a"] } as Props }
   );
@@ -181,7 +184,7 @@ test("a null value is controlled; only undefined means uncontrolled", () => {
         onChange,
       });
       return {
-        store: useStore(),
+        store: useAnnotatorStore("test"),
         set: useSetControllable<string | null>("activeHighlight"),
       };
     },
@@ -243,7 +246,7 @@ test("an uncontrolled key becomes controlled when a value appears", () => {
 
 test("a child calling the setter while mounting sees the controlled bridge", () => {
   const onChange = vi.fn();
-  let store!: ReturnType<typeof useStore>;
+  let store!: AnnotatorStore;
 
   function Child() {
     const set = useSetControllable<number>("zoom");
@@ -253,7 +256,7 @@ test("a child calling the setter while mounting sees the controlled bridge", () 
   }
   function Parent() {
     useControllable<number>("zoom", { value: 1.5, defaultValue: 1, onChange });
-    store = useStore();
+    store = useAnnotatorStore("test");
     return <Child />;
   }
 
@@ -272,7 +275,7 @@ test("a child calling the setter while mounting sees the controlled bridge", () 
 
 test("the bridge is unregistered when the hook's component unmounts", () => {
   const onChange = vi.fn();
-  let store!: ReturnType<typeof useStore>;
+  let store!: AnnotatorStore;
   let set!: (next: number, info: ChangeInfo) => void;
   let hide!: () => void;
 
@@ -283,7 +286,7 @@ test("the bridge is unregistered when the hook's component unmounts", () => {
   function Host() {
     const [shown, setShown] = useState(true);
     hide = () => setShown(false);
-    store = useStore();
+    store = useAnnotatorStore("test");
     set = useSetControllable<number>("zoom");
     return shown ? <Bridge /> : null;
   }
@@ -314,7 +317,10 @@ test("initial values and the bridge survive StrictMode double invocation", () =>
         defaultValue: 1.25,
         onChange,
       });
-      return { store: useStore(), set: useSetControllable<number>("zoom") };
+      return {
+        store: useAnnotatorStore("test"),
+        set: useSetControllable<number>("zoom"),
+      };
     },
     { wrapper }
   );
